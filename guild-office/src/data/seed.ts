@@ -304,8 +304,31 @@ export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
   },
 ];
 
+/**
+ * AI 직원의 외형(색상 배합·문장)은 대표가 고르지 않고 소환 때마다 무작위로 정해진다 —
+ * "사람 직원은 선택, AI 직원은 랜덤"이라는 요청에 따른 것이다. 직무(jobClass)에 따른
+ * 몸 형태는 그대로 두고, 색과 문장만 이 풀에서 무작위로 뽑아 다양한 룩을 만든다.
+ */
+export const AI_APPEARANCE_POOL: Array<{ palette: Employee['palette']; sigil: string }> = [
+  { palette: { robe: '#22335c', trim: '#c8d3e2', aura: '#7fd6f5' }, sigil: '✦' },
+  { palette: { robe: '#16181f', trim: '#3fd2e8', aura: '#3fd2e8' }, sigil: '⚙' },
+  { palette: { robe: '#3f3a44', trim: '#e8dcc0', aura: '#f0b957' }, sigil: '❖' },
+  { palette: { robe: '#3c2f5e', trim: '#d8c9e8', aura: '#b79bf0' }, sigil: '✎' },
+  { palette: { robe: '#1c3d33', trim: '#c9e8d4', aura: '#5fd6a0' }, sigil: '☘' },
+  { palette: { robe: '#5c1f2a', trim: '#e8c9c2', aura: '#e88f7a' }, sigil: '⛊' },
+  { palette: { robe: '#264a5c', trim: '#c2e0e8', aura: '#7ac9e8' }, sigil: '❄' },
+  { palette: { robe: '#4a3a1c', trim: '#e8d4a0', aura: '#e8a94a' }, sigil: '☀' },
+  { palette: { robe: '#2f2f3a', trim: '#d0d0e0', aura: '#9a9af0' }, sigil: '☾' },
+  { palette: { robe: '#4a1c3a', trim: '#e8b8d4', aura: '#e85fb0' }, sigil: '✧' },
+];
+
+function pickRandom<T>(pool: T[]): T {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export function createEmployee(spec: SeedSpec, now: number): Employee {
   const home = roomById(spec.homeRoom);
+  const look = pickRandom(AI_APPEARANCE_POOL);
   return {
     id: spec.id,
     kind: 'ai',
@@ -313,8 +336,8 @@ export function createEmployee(spec: SeedSpec, now: number): Employee {
     title: spec.title,
     jobClass: spec.jobClass,
     jobLabel: spec.jobLabel,
-    palette: spec.palette,
-    sigil: spec.sigil,
+    palette: look.palette,
+    sigil: look.sigil,
     state: 'idle',
     pos: { ...home.anchor },
     path: [],
