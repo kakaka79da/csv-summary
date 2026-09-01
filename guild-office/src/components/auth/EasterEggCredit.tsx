@@ -40,6 +40,8 @@ export default function EasterEggCredit({ makerName }: { makerName: string }) {
       className="inline-flex items-center gap-1.5 text-[11px]"
     >
       <input
+        type="password"
+        autoComplete="off"
         autoFocus
         value={code}
         onChange={(e) => {
