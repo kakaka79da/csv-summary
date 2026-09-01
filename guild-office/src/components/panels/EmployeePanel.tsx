@@ -45,7 +45,7 @@ export default function EmployeePanel({ employeeId }: { employeeId: string }) {
   const stopMission = useWorld((s) => s.stopMission);
 
   const [draft, setDraft] = useState('');
-  const [tab, setTab] = useState<'chat' | 'order' | 'api' | 'log'>('chat');
+  const [tab, setTab] = useState<'chat' | 'order' | 'api' | 'memory' | 'log'>('chat');
   const [wizardOpen, setWizardOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -147,6 +147,7 @@ export default function EmployeePanel({ employeeId }: { employeeId: string }) {
             ['chat', '1:1 대화'],
             ['order', '업무 지시'],
             ['api', 'API 설정'],
+            ['memory', '기억'],
             ['log', '활동 기록'],
           ] as const
         ).map(([k, l]) => (
@@ -220,6 +221,8 @@ export default function EmployeePanel({ employeeId }: { employeeId: string }) {
             </Button>
           </div>
         ) : null}
+
+        {tab === 'memory' ? <MemoryTab employeeId={employeeId} /> : null}
 
         {tab === 'log' ? <ActivityLog employeeId={employeeId} /> : null}
       </div>
@@ -423,6 +426,129 @@ function ActivityLog({ employeeId }: { employeeId: string }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ─────────────────────────────── 기억 ────────────────────────────────── */
+
+const MEMORY_KIND_LABEL: Record<string, string> = {
+  lesson: '교훈',
+  episode: '사건',
+  preference: '선호',
+  correction: '정정',
+};
+
+function MemoryTab({ employeeId }: { employeeId: string }) {
+  const memory = useWorld((s) => s.memories[employeeId]);
+  const addAgreement = useWorld((s) => s.addAgreement);
+  const [agreementDraft, setAgreementDraft] = useState('');
+
+  if (!memory) {
+    return <p className="text-xs text-stone-600">아직 소환되지 않아 기억이 없습니다.</p>;
+  }
+
+  const activeAgreements = memory.agreements.filter((a) => a.status === 'active');
+  const recentRecords = [...memory.records].sort((a, b) => b.at - a.at).slice(0, 10);
+
+  return (
+    <div className="space-y-4 text-xs">
+      <Notice>
+        이 기억은 {memory.identity.displayName}의 성품이자 정신세계입니다. 언어 모델을 바꿔도
+        이 구조(정체성·원칙·합의·교훈)는 그대로 유지됩니다 — 매 요청마다 여기서 시스템 프롬프트를
+        새로 조립할 뿐, 프롬프트가 기억을 바꾸지는 않습니다.
+      </Notice>
+
+      <div className="rounded-lg border border-stone-700 bg-stone-950/50 p-3">
+        <SectionTitle>정체성 · 성품</SectionTitle>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-stone-300">
+          {memory.identity.coreTraits.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+        <SectionTitle className="mt-3">절대 가치</SectionTitle>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-stone-300">
+          {memory.identity.values.map((v) => (
+            <li key={v}>{v}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="rounded-lg border border-stone-700 bg-stone-950/50 p-3">
+        <div className="mb-1 flex items-center justify-between">
+          <SectionTitle>대표와의 합의사항</SectionTitle>
+          <span className="text-[10px] text-stone-500">{activeAgreements.length}건 유효</span>
+        </div>
+        <ul className="space-y-1">
+          {activeAgreements.map((a) => (
+            <li key={a.id} className="rounded border border-stone-800 px-2 py-1.5 text-stone-300">
+              {a.statement}
+            </li>
+          ))}
+        </ul>
+        <div className="mt-2 flex gap-2">
+          <TextInput
+            value={agreementDraft}
+            placeholder="새 합의사항을 적으세요"
+            onChange={(e) => setAgreementDraft(e.target.value)}
+          />
+          <Button
+            size="sm"
+            onClick={() => {
+              if (!agreementDraft.trim()) return;
+              addAgreement(employeeId, agreementDraft);
+              setAgreementDraft('');
+            }}
+          >
+            추가
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-stone-700 bg-stone-950/50 p-3">
+        <SectionTitle>최근 기억</SectionTitle>
+        <ul className="mt-1 space-y-1.5">
+          {recentRecords.map((r) => (
+            <li key={r.id} className="rounded border border-stone-800 px-2 py-1.5">
+              <div className="flex items-center gap-2">
+                <span className="rounded border border-stone-700 px-1 py-0.5 text-[9px] text-stone-400">
+                  {MEMORY_KIND_LABEL[r.kind] ?? r.kind}
+                </span>
+                <span className="text-stone-200">{r.title}</span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-stone-500">{r.body}</p>
+            </li>
+          ))}
+          {recentRecords.length === 0 ? <p className="text-stone-600">아직 쌓인 기억이 없습니다.</p> : null}
+        </ul>
+      </div>
+
+      {memory.modelHistory.length > 0 ? (
+        <div className="rounded-lg border border-stone-700 bg-stone-950/50 p-3">
+          <SectionTitle>모델 교체 이력</SectionTitle>
+          <p className="mb-1 text-[10px] text-stone-500">
+            모델을 바꿔도 위 기억은 그대로 유지됩니다. 여기는 어떤 모델을 썼는지의 기록일 뿐입니다.
+          </p>
+          <ul className="space-y-1">
+            {memory.modelHistory.map((h, i) => (
+              <li key={i} className="text-[11px] text-stone-400">
+                {clock(h.at)} · {h.provider ?? '-'}/{h.model ?? '-'} {h.note ? `· ${h.note}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {memory.drive.folderUrl ? (
+        <a
+          href={memory.drive.folderUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-lg border border-gold/40 px-3 py-2 text-center text-gold hover:bg-gold/5"
+        >
+          구글 드라이브에서 원본 기억 파일 보기 →
+        </a>
+      ) : null}
     </div>
   );
 }

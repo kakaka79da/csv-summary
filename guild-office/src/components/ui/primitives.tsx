@@ -184,6 +184,10 @@ export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?
   return <div className={`rounded-lg border px-3 py-2 text-xs leading-relaxed ${t}`}>{children}</div>;
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
-  return <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-stone-500">{children}</h3>;
+export function SectionTitle({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <h3 className={`mb-2 text-xs font-semibold uppercase tracking-widest text-stone-500 ${className}`}>
+      {children}
+    </h3>
+  );
 }

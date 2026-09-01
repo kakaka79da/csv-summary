@@ -21,7 +21,7 @@ npm run dev          # http://localhost:5173
 | 명령 | 설명 |
 |---|---|
 | `npm run dev` | 개발 서버 |
-| `npm test` | 자동 테스트 23개 (상태 머신 / 경로탐색 / 승인·예산 규칙) |
+| `npm test` | 자동 테스트 28개 (상태 머신 / 경로탐색 / 승인·예산 규칙 / 개인 기억) |
 | `npm run typecheck` | 타입 검사 |
 | `npm run build` | 프로덕션 빌드 |
 | `npm run preview` | 빌드 결과 확인 |
@@ -68,14 +68,16 @@ guild-office/
    ├─ types/index.ts         도메인 타입 (서버와 공유할 계약)
    ├─ lib/
    │  ├─ pathfinding.ts      격자 A* — 벽·가구를 통과하지 않는 이동
+   │  ├─ memoryCompile.ts    기억 → 시스템 프롬프트 컴파일러 (모델 무관)
    │  └─ format.ts           표시용 포맷터, 상태 라벨(연출 + 실제)
    ├─ data/
    │  ├─ seed.ts             오피스 도면·격자 생성, AI 직원 3명, 제공자 카탈로그
+   │  ├─ memorySeed.ts       AI 직원 3명의 초기 기억 (구글 드라이브 폴더의 사본)
    │  └─ world.ts            격자 상수
    ├─ state/
    │  ├─ agentMachine.ts     캐릭터 상태 머신 (전이표)
    │  ├─ missionMachine.ts   미션 상태 머신 + 미션 생성기 + 비용 견적
-   │  └─ store.ts            전역 상태, 승인·예산 게이트, 시뮬레이션 루프
+   │  └─ store.ts            전역 상태, 승인·예산 게이트, 시뮬레이션 루프, 기억 액션
    └─ components/
       ├─ auth/               역할별 데모 로그인
       ├─ onboarding/         창립 · 사무실 · 소환 · 1:1 면담 · API 마법사 · 첫 미션 브리핑
@@ -189,6 +191,32 @@ API 연결 후 상태에 남는 것은 서버 참조 ID(`keyRef`)와 마스킹 �
 상태와 묶여 있어야 하기 때문입니다.
 
 SVG는 모두 도형만으로 구성했으며, 특정 작품의 캐릭터·의상·로고를 복제하지 않았습니다.
+
+## 개인 기억 — 성품은 모델과 독립적이다
+
+각 AI 직원은 채팅 기록이 아니라 **성품·업무 원칙·대표와의 합의사항·교훈**으로 구성된
+개인 기억을 가집니다. 이 기억이 그 직원의 정신세계이며, 모델(제공자·모델명)을 바꿔도
+구조가 그대로 유지되도록 설계했습니다.
+
+```
+identity.json (성품·가치·말투) + principles.md (업무 원칙) +
+agreements.jsonl (합의사항, append-only) + memory-log.jsonl (교훈·사건, append-only)
+        │
+        └─ compileSystemPrompt() ──> 시스템 프롬프트 (모델 호출 시 매번 새로 조립, 저장 안 함)
+```
+
+- 정본은 대표의 구글 드라이브 폴더 **"길드 오피스 — AI 직원 기억"** 에 있고,
+  `src/data/memorySeed.ts` 는 그 폴더의 내용을 앱 초기값으로 반영한 사본입니다.
+  스키마 정의는 드라이브의 `00_공용_스키마/MEMORY-SCHEMA.md` 참고.
+- 앱 쪽 타입은 `src/types/index.ts` 의 `EmployeeMemory` / `MemoryRecord` / `MemoryAgreement`,
+  프롬프트 조립은 `src/lib/memoryCompile.ts` 의 `compileSystemPrompt()`.
+- 직원 소환 시(`summonEmployees`) 기억이 채워지고, 미션을 완료하면 사건 기억이 한 줄
+  append 됩니다. `connectProvider` 로 모델을 연결·교체해도 기억 파일 자체는 건드리지 않고
+  `modelHistory` 에 이력만 남습니다 — 이것이 "모델을 바꿔도 기억 구조는 유지된다"는
+  요구사항의 실제 구현 지점입니다. 직원 상세 패널의 **"기억"** 탭에서 확인할 수 있습니다.
+- 임베딩 벡터·토큰 ID·제공자 전용 메시지 포맷·API 키는 기억에 저장하지 않습니다
+  (모델을 바꾸면 무의미해지거나, 보안 규칙에 어긋나기 때문). 이 규칙은
+  `store.test.ts` 의 "개인 기억 (모델 무관)" 테스트로 고정되어 있습니다.
 
 ## 다음 단계
 

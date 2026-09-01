@@ -187,6 +187,114 @@ export interface Employee {
 
 export type ReportStyle = 'concise' | 'detailed' | 'bullet';
 
+/* ──────────────────────────── 개인 기억 ─────────────────────────────── */
+
+/**
+ * 기억 스키마 버전.
+ *
+ * 핵심 설계: 기억은 **언어 모델과 독립적**이다.
+ * 모델에게 주는 시스템 프롬프트는 기억에서 매번 새로 조립(compile)하며,
+ * 반대로 프롬프트가 기억을 바꾸는 경로는 존재하지 않는다.
+ * 따라서 제공자/모델을 갈아치워도 성품·원칙·합의·교훈은 그대로 남는다.
+ *
+ * 이 값이 바뀌면 구버전을 신버전으로 올려주는 변환기를 둔다.
+ * 파일이나 상태를 파괴적으로 덮어쓰지 않는다.
+ */
+export const MEMORY_SCHEMA = 'guild-office.memory/v1';
+
+/** 정체성 — 그 직원의 성품이자 정신세계의 뼈대. 드물게, 대표 승인으로만 바꾼다. */
+export interface MemoryIdentity {
+  employeeId: string;
+  displayName: string;
+  title: string;
+  jobClass: JobClass;
+  jobLabel: string;
+  /** 성품 */
+  coreTraits: string[];
+  /** 절대 가치 — 모델이 바뀌어도 유지되어야 하는 판단 기준 */
+  values: string[];
+  /** 말투. 모델 전용 문법이 아니라 사람이 읽는 지시문으로 적는다. */
+  voice: {
+    register: string;
+    length: string;
+    prefers: string[];
+    avoid: string[];
+  };
+  /** 하지 않는 일 */
+  taboos: string[];
+  /** 동료·대표와의 관계 정의 */
+  relationships: Record<string, string>;
+  revision: number;
+}
+
+export type MemoryKind = 'lesson' | 'episode' | 'preference' | 'correction';
+
+/** 기억 한 줄. append-only 로 쌓고, 철회는 supersedes 로 표현한다. */
+export interface MemoryRecord {
+  id: string;
+  kind: MemoryKind;
+  at: number;
+  title: string;
+  body: string;
+  /** 어디서 비롯된 기억인지 (mission:… / interview:… / founding) */
+  source: string;
+  confidence: 'high' | 'medium' | 'low';
+  tags: string[];
+  /** 이 기억이 대체하는 이전 기억 id */
+  supersedes: string | null;
+}
+
+/** 대표와의 합의사항. 지워지지 않고 상태만 바뀐다. */
+export interface MemoryAgreement {
+  id: string;
+  at: number;
+  with: string;
+  statement: string;
+  status: 'active' | 'superseded' | 'revoked';
+  source: string;
+  supersedes: string | null;
+}
+
+/**
+ * 어떤 모델로 운영했는지의 이력.
+ * ⚠️ 키·토큰은 여기에 들어오지 않는다. 이름(provider/model)만 남긴다.
+ */
+export interface ModelBindingRecord {
+  at: number;
+  provider: ProviderId | null;
+  model: string | null;
+  note: string;
+}
+
+/** 구글 드라이브 상의 기억 폴더 연결 정보. 파일 ID만 담는다. */
+export interface DriveMemoryLink {
+  rootFolderId: string | null;
+  folderId: string | null;
+  folderTitle: string;
+  folderUrl: string | null;
+  files: {
+    identity: string | null;
+    principles: string | null;
+    agreements: string | null;
+    log: string | null;
+    manifest: string | null;
+  };
+  lastSyncedAt: number | null;
+}
+
+export interface EmployeeMemory {
+  schema: typeof MEMORY_SCHEMA;
+  employeeId: string;
+  identity: MemoryIdentity;
+  /** 업무 원칙 정본 (마크다운). 사람이 읽고 고치는 문서다. */
+  principles: string;
+  agreements: MemoryAgreement[];
+  records: MemoryRecord[];
+  modelHistory: ModelBindingRecord[];
+  drive: DriveMemoryLink;
+  updatedAt: number;
+}
+
 /* ───────────────────────── 미션 / 퀘스트 ───────────────────────────── */
 
 export type Difficulty = 'normal' | 'elite' | 'boss' | 'raid';

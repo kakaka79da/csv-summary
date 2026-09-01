@@ -22,6 +22,8 @@ import {
 } from '@/data/seed';
 import { advanceAlongPath, findPath } from '@/lib/pathfinding';
 import { clamp, nid } from '@/lib/format';
+import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
+import { seedMemory, type MemoryAgreement } from '@/data/memorySeed';
 import { canAcceptWork, nextAgentState, type AgentEvent } from '@/state/agentMachine';
 import {
   buildDirectMission,
@@ -40,9 +42,11 @@ import type {
   Company,
   Difficulty,
   Employee,
+  EmployeeMemory,
   LedgerEntry,
   Message,
   MessageKind,
+  MemoryKind,
   Mission,
   Phase,
   ProviderId,
@@ -61,6 +65,13 @@ export interface WorldState {
 
   employees: Record<string, Employee>;
   employeeOrder: string[];
+
+  /**
+   * 직원별 개인 기억. 성품·업무 원칙·합의사항·교훈을 담으며, 모델(binding)과는
+   * 완전히 독립된 저장소다. 모델을 바꿔도 이 값은 그대로 유지된다.
+   * 정본은 대표의 구글 드라이브 폴더에 있고, 이 값은 앱이 들고 있는 사본이다.
+   */
+  memories: Record<string, EmployeeMemory>;
 
   missions: Record<string, Mission>;
   missionOrder: string[];
@@ -125,6 +136,17 @@ export interface WorldActions {
   requestReturn: (employeeId: string) => void;
 
   sendChat: (employeeId: string, text: string) => void;
+
+  /** 기억 한 줄을 append 한다 (교훈/사건/선호/정정). 기존 기억은 지우지 않는다. */
+  addMemoryRecord: (
+    employeeId: string,
+    input: { kind: MemoryKind; title: string; body: string; source: string; tags?: string[] },
+  ) => void;
+  /** 대표와의 합의사항을 추가한다. */
+  addAgreement: (employeeId: string, statement: string) => void;
+  /** 현재 기억으로부터 시스템 프롬프트를 다시 조립한다 (모델 무관 텍스트). */
+  compileEmployeePrompt: (employeeId: string) => string;
+
   selectEmployee: (id: string | null) => void;
   openPanel: (p: WorldState['ui']['openPanel']) => void;
   setToast: (t: string | null) => void;
@@ -143,6 +165,7 @@ const initialState: WorldState = {
   company: null,
   employees: {},
   employeeOrder: [],
+  memories: {},
   missions: {},
   missionOrder: [],
   artifacts: {},
@@ -282,14 +305,19 @@ export const useWorld = create<Store>()(
         const s = get();
         const now = Date.now();
         const employees: Record<string, Employee> = { ...s.employees };
+        const memories: Record<string, EmployeeMemory> = { ...s.memories };
         let chats = { ...s.chats };
         for (const spec of AI_EMPLOYEE_SEEDS) {
           employees[spec.id] = createEmployee(spec, now);
+          // 기억은 소환 시점에 드라이브 시드로부터 채워진다. 이후로는 이 앱 안에서만
+          // append 되며(교훈/합의), 모델을 연결·교체해도 이 값은 건드리지 않는다.
+          memories[spec.id] = seedMemory(spec.id);
           chats = pushMessage(chats, spec.id, 'agent', 'system', GREETINGS[spec.id]);
         }
         set({
           employees,
           employeeOrder: AI_EMPLOYEE_SEEDS.map((x) => x.id),
+          memories,
           chats,
           tutorial: { ...s.tutorial, summoned: true },
           audit: audit(
@@ -397,8 +425,16 @@ export const useWorld = create<Store>()(
           },
         };
 
+        // 모델 연결/교체는 기억 이력에만 남긴다. 기억 파일(정체성·원칙·합의·교훈) 자체는
+        // 건드리지 않는다 — 이것이 "모델을 바꿔도 기억 구조는 유지된다"의 실제 지점이다.
+        const memory = s.memories[employeeId];
+        const memories = memory
+          ? { ...s.memories, [employeeId]: recordModelSwitch(memory, cfg.provider, cfg.model, '대표가 API 마법사에서 연결') }
+          : s.memories;
+
         set({
           employees: { ...s.employees, [employeeId]: updated },
+          memories,
           approvals: approval ? [approval, ...s.approvals] : s.approvals,
           chats: pushMessage(
             s.chats,
@@ -804,6 +840,55 @@ export const useWorld = create<Store>()(
         set({ chats });
       },
 
+      /* ── 개인 기억 ─────────────────────────────────────────────────── */
+      addMemoryRecord: (employeeId, input) => {
+        const s = get();
+        const memory = s.memories[employeeId];
+        const emp = s.employees[employeeId];
+        if (!memory || !emp) return;
+        const updated = appendRecord(memory, {
+          kind: input.kind,
+          title: input.title,
+          body: input.body,
+          source: input.source,
+          confidence: 'medium',
+          tags: input.tags ?? [],
+        });
+        set({
+          memories: { ...s.memories, [employeeId]: updated },
+          audit: audit(s.audit, s.company?.ceoName ?? '-', '기억 기록', emp.name, input.title),
+        });
+      },
+
+      addAgreement: (employeeId, statement) => {
+        const s = get();
+        const memory = s.memories[employeeId];
+        const emp = s.employees[employeeId];
+        if (!memory || !emp || !statement.trim()) return;
+        const entry: MemoryAgreement = {
+          id: nid('agr'),
+          at: Date.now(),
+          with: 'ceo',
+          statement: statement.trim(),
+          status: 'active',
+          source: 'chat',
+          supersedes: null,
+        };
+        set({
+          memories: {
+            ...s.memories,
+            [employeeId]: { ...memory, agreements: [...memory.agreements, entry], updatedAt: Date.now() },
+          },
+          audit: audit(s.audit, s.company?.ceoName ?? '-', '합의사항 추가', emp.name, statement.trim()),
+        });
+      },
+
+      compileEmployeePrompt: (employeeId) => {
+        const memory = get().memories[employeeId];
+        if (!memory) return '';
+        return compileSystemPrompt(memory);
+      },
+
       selectEmployee: (id) => set((s) => ({ ui: { ...s.ui, selectedEmployeeId: id } })),
       openPanel: (p) => set((s) => ({ ui: { ...s.ui, openPanel: p } })),
       setToast: (t) => set((s) => ({ ui: { ...s.ui, toast: t } })),
@@ -826,6 +911,7 @@ export const useWorld = create<Store>()(
         company: s.company,
         employees: s.employees,
         employeeOrder: s.employeeOrder,
+        memories: s.memories,
         missions: s.missions,
         missionOrder: s.missionOrder,
         artifacts: s.artifacts,
@@ -865,6 +951,7 @@ export function advanceWorld(s: WorldState, dtMs: number): Partial<WorldState> {
   let chats = s.chats;
   let approvals = s.approvals;
   let auditLog = s.audit;
+  let memories = s.memories;
 
   /* 1) 이동 처리 */
   for (const emp of Object.values(employees)) {
@@ -1041,6 +1128,23 @@ export function advanceWorld(s: WorldState, dtMs: number): Partial<WorldState> {
             `${s.company?.ceoName ?? '대표'} 대표님, 요청하신 결과물입니다. — 「${mission.name}」 (실제 비용 $${mission.actualCostUsd.toFixed(3)})`,
           );
           auditLog = audit(auditLog, emp.name, '최종 보고', mission.name, `$${mission.actualCostUsd.toFixed(3)}`);
+
+          // 미션 완료를 담당자의 개인 기억에 사건으로 남긴다. 성품·원칙 파일은 건드리지 않고,
+          // append-only 인 memory-log 에만 한 줄이 늘어난다.
+          const memory = memories[emp.id];
+          if (memory) {
+            memories = {
+              ...memories,
+              [emp.id]: appendRecord(memory, {
+                kind: 'episode',
+                title: `미션 완료 — ${mission.name}`,
+                body: `실제 비용 $${mission.actualCostUsd.toFixed(3)}. ${mission.objective}`,
+                source: `mission:${mission.id}`,
+                confidence: 'high',
+                tags: ['미션', mission.difficulty],
+              }),
+            };
+          }
         } else {
           mission.currentStepIndex += 1;
         }
@@ -1082,5 +1186,5 @@ export function advanceWorld(s: WorldState, dtMs: number): Partial<WorldState> {
     }
   }
 
-  return { employees, missions, ledger, artifacts, chats, approvals, audit: auditLog };
+  return { employees, missions, ledger, artifacts, chats, approvals, audit: auditLog, memories };
 }

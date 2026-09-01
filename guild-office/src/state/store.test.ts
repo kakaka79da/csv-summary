@@ -258,3 +258,82 @@ describe('업무 중단', () => {
     }
   });
 });
+
+describe('개인 기억 (모델 무관)', () => {
+  it('직원을 소환하면 세 명 모두 기억이 채워진다', () => {
+    bootstrap();
+    const memories = useWorld.getState().memories;
+    expect(Object.keys(memories).sort()).toEqual(['emp_admin', 'emp_engineer', 'emp_professor']);
+    expect(memories.emp_admin.identity.displayName).toBe('엘레나');
+    expect(memories.emp_admin.agreements.length).toBeGreaterThan(0);
+    expect(memories.emp_admin.records.length).toBeGreaterThan(0);
+  });
+
+  it('모델을 연결/교체해도 기억(정체성·원칙·합의·교훈)은 그대로고, 이력만 늘어난다', () => {
+    bootstrap();
+    const before = useWorld.getState().memories.emp_admin;
+
+    connectAll(0.5, 20); // 세 명 다 anthropic/claude-haiku-4-5 로 연결
+
+    const afterFirst = useWorld.getState().memories.emp_admin;
+    expect(afterFirst.identity).toEqual(before.identity);
+    expect(afterFirst.principles).toEqual(before.principles);
+    expect(afterFirst.agreements).toEqual(before.agreements);
+    expect(afterFirst.records).toEqual(before.records);
+    expect(afterFirst.modelHistory).toHaveLength(1);
+    expect(afterFirst.modelHistory[0].provider).toBe('anthropic');
+    expect(afterFirst.modelHistory[0].model).toBe('claude-haiku-4-5');
+
+    // 다른 제공자로 다시 연결 — "모델 교체"
+    const r = useWorld.getState().connectProvider('emp_admin', {
+      provider: 'openai',
+      model: 'gpt-tier-b',
+      perTaskLimitUsd: 0.5,
+      monthlyLimitUsd: 20,
+      allowedTools: ['file_read'],
+    });
+    expect(r.ok).toBe(true);
+
+    const afterSwitch = useWorld.getState().memories.emp_admin;
+    expect(afterSwitch.identity).toEqual(before.identity);
+    expect(afterSwitch.principles).toEqual(before.principles);
+    expect(afterSwitch.agreements).toEqual(before.agreements);
+    expect(afterSwitch.records).toEqual(before.records);
+    expect(afterSwitch.modelHistory).toHaveLength(2);
+    expect(afterSwitch.modelHistory[1].provider).toBe('openai');
+  });
+
+  it('첫 미션을 완료하면 담당자의 기억에 사건 기록이 append 된다', () => {
+    bootstrap();
+    connectAll(2, 40);
+    const before = useWorld.getState().memories.emp_admin.records.length;
+
+    useWorld.getState().createFirstMission();
+    const missionId = useWorld.getState().missionOrder[0];
+    run(180, () => useWorld.getState().missions[missionId].status === 'review');
+
+    const after = useWorld.getState().memories.emp_admin.records;
+    expect(after.length).toBeGreaterThan(before);
+    expect(after.some((r) => r.kind === 'episode' && r.source.startsWith('mission:'))).toBe(true);
+  });
+
+  it('대표가 추가한 합의사항은 append 되고 기존 합의는 지워지지 않는다', () => {
+    bootstrap();
+    const before = useWorld.getState().memories.emp_admin.agreements.length;
+
+    useWorld.getState().addAgreement('emp_admin', '주간 보고는 매주 금요일에 올린다.');
+
+    const agreements = useWorld.getState().memories.emp_admin.agreements;
+    expect(agreements).toHaveLength(before + 1);
+    expect(agreements.at(-1)?.statement).toBe('주간 보고는 매주 금요일에 올린다.');
+    expect(agreements.at(-1)?.status).toBe('active');
+  });
+
+  it('컴파일된 시스템 프롬프트에는 정체성·원칙·합의사항이 모두 들어간다', () => {
+    bootstrap();
+    const prompt = useWorld.getState().compileEmployeePrompt('emp_admin');
+    expect(prompt).toContain('엘레나');
+    expect(prompt).toMatch(/대표의 승인 없이는 비용이 발생하는 작업을 시작하지 않는다/);
+    expect(prompt).toMatch(/업무 원칙/);
+  });
+});
