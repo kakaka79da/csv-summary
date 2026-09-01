@@ -89,8 +89,21 @@ export default function OfficeCanvas() {
   const company = useWorld((s) => s.company);
   const selectedId = useWorld((s) => s.ui.selectedEmployeeId);
   const select = useWorld((s) => s.selectEmployee);
+  const sendToRoom = useWorld((s) => s.sendEmployeeToRoom);
+  const setToast = useWorld((s) => s.setToast);
   const [meetingOpen, setMeetingOpen] = useState(false);
-  const meetingRoom = ROOMS.find((r) => r.id === 'meeting')!;
+
+  const handleRoomDoubleClick = (roomId: RoomId) => {
+    if (roomId === 'meeting') {
+      setMeetingOpen(true);
+      return;
+    }
+    if (!selectedId) {
+      setToast('먼저 오피스에서 직원을 클릭해 선택한 뒤, 보낼 방을 더블클릭하세요.');
+      return;
+    }
+    sendToRoom(selectedId, roomId);
+  };
 
   // 가구 타일은 벽과 구분해서 칠하기 위해 따로 모아 둔다.
   const furnitureByKey = new Map<string, RoomId>();
@@ -221,37 +234,48 @@ export default function OfficeCanvas() {
           );
         })}
 
-        {/* 회의 테이블 — 더블클릭하면 우선순위 회의 소집. 벽·가구·표지판보다 위,
-            캐릭터보다는 아래에 그려서 방 어디를 눌러도 걸리고, 캐릭터 클릭은 그대로 우선한다. */}
-        <g
-          onDoubleClick={() => setMeetingOpen(true)}
-          style={{ cursor: 'pointer' }}
-          role="button"
-          aria-label="더블클릭하여 우선순위 회의 소집"
-        >
-          <title>더블클릭 — 우선순위 회의 소집 (지금 자유 상태인 직원을 모읍니다)</title>
-          <rect
-            x={meetingRoom.rect.x}
-            y={meetingRoom.rect.y}
-            width={meetingRoom.rect.w}
-            height={meetingRoom.rect.h}
-            fill="transparent"
-          />
-          <motion.rect
-            x={meetingRoom.rect.x + 0.15}
-            y={meetingRoom.rect.y + 0.15}
-            width={meetingRoom.rect.w - 0.3}
-            height={meetingRoom.rect.h - 0.3}
-            rx={0.3}
-            fill="none"
-            stroke="#ffd980"
-            strokeWidth={0.06}
-            strokeDasharray="0.3 0.22"
-            pointerEvents="none"
-            animate={{ opacity: [0.18, 0.5, 0.18] }}
-            transition={{ duration: 2.4, repeat: Infinity }}
-          />
-        </g>
+        {/* 방 더블클릭 — 벽·가구·표지판보다 위, 캐릭터보다는 아래에 그려서
+            방 어디를 눌러도 걸리고, 캐릭터 클릭은 그대로 우선한다.
+            회의 테이블: 언제나 더블클릭하면 우선순위 회의 소집.
+            다른 방: 먼저 직원을 선택한 뒤 더블클릭하면 그 방으로 보낸다.
+            대표 집무실로 보내면 도착을 기다리지 않고 바로 1:1 면담 패널이 열린다. */}
+        {ROOMS.map((room) => {
+          const isMeeting = room.id === 'meeting';
+          const hint = isMeeting
+            ? '더블클릭 — 우선순위 회의 소집 (지금 자유 상태인 직원을 모읍니다)'
+            : room.id === 'ceo_office'
+              ? '더블클릭 — 선택한 직원을 대표 집무실로 불러 1:1 면담을 시작합니다'
+              : `더블클릭 — 선택한 직원을 ${room.name}(으)로 보냅니다`;
+          const showHint = isMeeting || selectedId;
+          return (
+            <g
+              key={`send-${room.id}`}
+              onDoubleClick={() => handleRoomDoubleClick(room.id)}
+              style={{ cursor: 'pointer' }}
+              role="button"
+              aria-label={hint}
+            >
+              <title>{hint}</title>
+              <rect x={room.rect.x} y={room.rect.y} width={room.rect.w} height={room.rect.h} fill="transparent" />
+              {showHint ? (
+                <motion.rect
+                  x={room.rect.x + 0.15}
+                  y={room.rect.y + 0.15}
+                  width={room.rect.w - 0.3}
+                  height={room.rect.h - 0.3}
+                  rx={0.3}
+                  fill="none"
+                  stroke={isMeeting ? '#ffd980' : '#8fe0bb'}
+                  strokeWidth={0.06}
+                  strokeDasharray="0.3 0.22"
+                  pointerEvents="none"
+                  animate={{ opacity: [0.14, 0.42, 0.14] }}
+                  transition={{ duration: 2.4, repeat: Infinity }}
+                />
+              ) : null}
+            </g>
+          );
+        })}
 
         {/* 대표 캐릭터 (고정 위치) */}
         {company ? (
@@ -329,6 +353,7 @@ export default function OfficeCanvas() {
         </span>
         <span>캐릭터 이름표의 뒷부분은 현재 상태이며, 정확한 의미는 직원 패널에서 확인할 수 있습니다.</span>
         <span>회의 테이블을 더블클릭하면 우선순위 회의를 소집할 수 있습니다.</span>
+        <span>직원을 클릭해 선택한 뒤 다른 방을 더블클릭하면 그곳으로 보냅니다 — 대표 집무실로 보내면 1:1 면담이 시작됩니다.</span>
       </div>
 
       {meetingOpen ? <PriorityMeetingModal onClose={() => setMeetingOpen(false)} /> : null}

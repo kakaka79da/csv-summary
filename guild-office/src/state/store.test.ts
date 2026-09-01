@@ -518,3 +518,80 @@ describe('이스터에그 — 탱크형 변형 휠 데모', () => {
     }
   });
 });
+
+describe('플랫폼 제작자 표기', () => {
+  it('플랫폼 관리자만 바꿀 수 있고, 로그인 화면·이스터에그 소개에 그대로 반영된다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    useWorld.getState().foundCompany({ ...COMPANY_DEFAULTS });
+
+    // 대표는 바꿀 수 없다.
+    const asCeo = useWorld.getState().setPlatformMakerName('새이름');
+    expect(asCeo.ok).toBe(false);
+    expect(useWorld.getState().platformMakerName).toBeNull();
+
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    const asAdmin = useWorld.getState().setPlatformMakerName('  우리회사  ');
+    expect(asAdmin.ok).toBe(true);
+    expect(useWorld.getState().platformMakerName).toBe('우리회사'); // 앞뒤 공백 제거
+
+    const empty = useWorld.getState().setPlatformMakerName('   ');
+    expect(empty.ok).toBe(false);
+    expect(useWorld.getState().platformMakerName).toBe('우리회사'); // 실패 시 그대로 유지
+  });
+});
+
+describe('직원을 방으로 보내기 (클릭 이동)', () => {
+  it('자유 상태인 직원을 선택한 방으로 보내면 실제로 걸어간다', () => {
+    bootstrap();
+    const r = useWorld.getState().sendEmployeeToRoom('emp_engineer', 'lounge');
+    expect(r.ok).toBe(true);
+    expect(emp('emp_engineer').destinationRoom).toBe('lounge');
+    expect(emp('emp_engineer').state).toBe('walking');
+
+    run(10, () => emp('emp_engineer').path.length === 0);
+    expect(emp('emp_engineer').state).toBe('resting');
+  });
+
+  it('업무 중인 직원은 억지로 이동시키지 않는다', () => {
+    bootstrap();
+    connectAll(2, 40);
+    useWorld.getState().createFirstMission();
+    const missionId = useWorld.getState().missionOrder[0];
+    run(30, () => {
+      const m = useWorld.getState().missions[missionId];
+      const a = useWorld.getState().employees[m.steps[m.currentStepIndex].assigneeId];
+      return a.currentMissionId === missionId && a.state !== 'walking';
+    });
+    const workingId = useWorld.getState().missions[missionId].steps[useWorld.getState().missions[missionId].currentStepIndex]
+      .assigneeId;
+
+    const r = useWorld.getState().sendEmployeeToRoom(workingId, 'lounge');
+    expect(r.ok).toBe(false);
+    expect(useWorld.getState().employees[workingId].currentMissionId).toBe(missionId);
+  });
+
+  it('대표 집무실로 보내면 도착을 기다리지 않고 바로 1:1 패널이 열린다 (면담)', () => {
+    bootstrap();
+    const r = useWorld.getState().sendEmployeeToRoom('emp_admin', 'ceo_office');
+    expect(r.ok).toBe(true);
+
+    const s = useWorld.getState();
+    expect(s.ui.selectedEmployeeId).toBe('emp_admin');
+    expect(s.employees.emp_admin.destinationRoom).toBe('ceo_office');
+    const chat = s.chats.emp_admin!.at(-1)!;
+    expect(chat.text).toContain('면담');
+  });
+
+  it('휴직 중인 직원은 이동시킬 수 없다', () => {
+    bootstrap();
+    connectAll();
+    useWorld.getState().requestLeave('emp_engineer');
+    const leaveApproval = useWorld.getState().approvals.find((a) => a.kind === 'leave')!;
+    useWorld.getState().decideApproval(leaveApproval.id, 'approved');
+
+    const r = useWorld.getState().sendEmployeeToRoom('emp_engineer', 'lounge');
+    expect(r.ok).toBe(false);
+  });
+});

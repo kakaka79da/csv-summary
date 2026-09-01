@@ -22,7 +22,7 @@ const ROLES = [
     role: 'platform_admin' as const,
     title: '플랫폼 관리자',
     flavor: '세계의 관리자',
-    desc: `플랫폼 제작자(${PLATFORM_MAKER}) 계정. 회사 운영에는 관여하지 않는다`,
+    desc: '', // 아래 렌더링에서 현재 제작자 표기로 채운다
     sigil: '⚙',
   },
   {
@@ -37,6 +37,7 @@ const ROLES = [
 export default function LoginScreen() {
   const login = useWorld((s) => s.loginDemo);
   const company = useWorld((s) => s.company);
+  const makerName = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
@@ -77,7 +78,11 @@ export default function LoginScreen() {
                       <span className="font-medium text-stone-100">{r.title}</span>
                       <span className="text-[11px] text-stone-500">· {r.flavor}</span>
                     </span>
-                    <span className="mt-0.5 block text-xs text-stone-400">{r.desc}</span>
+                    <span className="mt-0.5 block text-xs text-stone-400">
+                      {r.role === 'platform_admin'
+                        ? `플랫폼 제작자(${makerName}) 계정. 회사 운영에는 관여하지 않는다`
+                        : r.desc}
+                    </span>
                   </span>
                   <span className="shrink-0 text-xs text-stone-500">
                     {locked ? '창립 후 개방' : '데모 로그인 →'}
@@ -115,7 +120,7 @@ export default function LoginScreen() {
         ) : null}
 
         <div className="mt-6 text-center">
-          <EasterEggCredit />
+          <EasterEggCredit makerName={makerName} />
         </div>
       </motion.div>
     </div>
@@ -126,7 +131,7 @@ export default function LoginScreen() {
  * 아주 작은 제작자 표기. 이스터에그 진입점이다.
  * 클릭하면 코드 입력칸이 나타나고, 맞는 코드를 넣으면 숨겨진 데모 시나리오가 시작된다.
  */
-function EasterEggCredit() {
+function EasterEggCredit({ makerName }: { makerName: string }) {
   const tryCode = useWorld((s) => s.tryEasterEggCode);
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
@@ -139,7 +144,7 @@ function EasterEggCredit() {
         onClick={() => setOpen(true)}
         className="text-[11px] text-stone-500 transition-colors hover:text-stone-300"
       >
-        플랫폼 제작: <span className="underline decoration-dotted">{PLATFORM_MAKER}</span>
+        플랫폼 제작: <span className="underline decoration-dotted">{makerName}</span>
       </button>
     );
   }

@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useWorld } from '@/state/store';
 import { money } from '@/lib/format';
+import { PLATFORM_MAKER } from '@/data/seed';
 import { Badge, Button, Field, Notice, SectionTitle, Select, TextInput } from '@/components/ui/primitives';
 
 const BRANCHES = [
@@ -149,6 +150,8 @@ export function SettingsPanel() {
         <Row k="월간 AI 예산" v={money(company.monthlyBudgetUsd, company.currency)} />
       </div>
 
+      {session?.role === 'platform_admin' ? <PlatformMakerSetting /> : null}
+
       <div className="rounded-xl border border-ember/40 bg-ember/5 p-4">
         <SectionTitle>보안 — 이 프로토타입의 한계</SectionTitle>
         <ul className="list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-stone-300">
@@ -184,6 +187,51 @@ export function SettingsPanel() {
           전체 초기화
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 플랫폼 제작자 표기 수정 — 플랫폼 관리자에게만 보인다.
+ * 오피스 안에서 대표가 세우는 게임 속 "회사"(예: 크림바스켓)와는 다른 개념이다.
+ * 이건 이 소프트웨어 자체를 만든 바깥의 실제 주체 표기이며, 로그인 화면과
+ * 이스터에그 진입점에 함께 쓰인다.
+ */
+function PlatformMakerSetting() {
+  const current = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
+  const companyName = useWorld((s) => s.company?.name);
+  const setName = useWorld((s) => s.setPlatformMakerName);
+  const [value, setValue] = useState(current);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className="rounded-xl border border-arcane/40 bg-arcane/5 p-4">
+      <SectionTitle>플랫폼 제작자 표기</SectionTitle>
+      <p className="mb-2 text-[11px] leading-relaxed text-stone-400">
+        이 소프트웨어(플랫폼) 자체를 만든 주체 표기입니다 — 오피스 안에서 대표가 세우는 회사({companyName ?? '예: 크림바스켓'})와는
+        다릅니다. 로그인 화면 하단과 숨은 이스터에그 진입점에 그대로 쓰입니다.
+      </p>
+      <div className="flex gap-2">
+        <TextInput
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+          }}
+          placeholder={PLATFORM_MAKER}
+        />
+        <Button
+          size="sm"
+          onClick={() => {
+            const r = setName(value);
+            if (!r.ok) setError(r.error ?? '변경할 수 없습니다.');
+          }}
+        >
+          저장
+        </Button>
+      </div>
+      {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
+      <p className="mt-1 text-[11px] text-stone-500">현재: {current}</p>
     </div>
   );
 }

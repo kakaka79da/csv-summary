@@ -59,6 +59,7 @@ import type {
   Phase,
   ProviderId,
   Role,
+  RoomId,
   Session,
   TaskEstimate,
   ToolId,
@@ -70,6 +71,14 @@ export interface WorldState {
   session: Session | null;
   phase: Phase;
   company: Company | null;
+
+  /**
+   * 이 소프트웨어(플랫폼) 자체를 만든 회사/제작자 표기. 오피스 안에서 대표가 세우는
+   * "회사"(company.name, 예: 크림바스켓)와는 다른 개념이다 — 저건 게임 속 회사이고,
+   * 이건 이 도구를 만든 바깥의 실제 주체다. null 이면 기본값(PLATFORM_MAKER)을 쓴다.
+   * 플랫폼 관리자만 설정·보안 화면에서 바꿀 수 있다.
+   */
+  platformMakerName: string | null;
 
   employees: Record<string, Employee>;
   employeeOrder: string[];
@@ -112,6 +121,18 @@ export interface WorldState {
 export interface WorldActions {
   loginDemo: (role: Role) => void;
   logout: () => void;
+
+  /** 플랫폼 제작자 표기를 바꾼다. 플랫폼 관리자만 호출할 수 있다. */
+  setPlatformMakerName: (name: string) => { ok: boolean; error?: string };
+
+  /**
+   * 선택한 직원을 다른 방으로 보낸다 (오피스에서 직원을 클릭해 선택한 뒤 방을 더블클릭).
+   * AI 직원은 실제로 걸어간다. 대표 집무실로 보내면 도착을 기다리지 않고 바로
+   * 1:1 패널이 열린다 — "직원을 데려다 놓고 마주 앉아 대화한다"는 면담 흐름이다.
+   * 인간 직원은 캐릭터처럼 옮길 수 없으므로, 대신 메시지를 남긴다(실제 발송은
+   * 인간 직원 기능이 연결된 뒤 백엔드가 처리한다).
+   */
+  sendEmployeeToRoom: (employeeId: string, room: RoomId) => { ok: boolean; error?: string; messaged?: boolean };
 
   foundCompany: (input: Omit<Company, 'foundedAt'>) => void;
   buildOffice: () => void;
@@ -196,6 +217,7 @@ const initialState: WorldState = {
   session: null,
   phase: 'login',
   company: null,
+  platformMakerName: null,
   employees: {},
   employeeOrder: [],
   memories: {},
@@ -297,7 +319,7 @@ export const useWorld = create<Store>()(
           role === 'ceo'
             ? (s.company?.ceoName ?? '대표 (데모)')
             : role === 'platform_admin'
-              ? PLATFORM_MAKER
+              ? (s.platformMakerName || PLATFORM_MAKER)
               : '인간 직원 (데모)';
         set({
           session: { role, accountName, demo: true },
@@ -313,6 +335,21 @@ export const useWorld = create<Store>()(
           phase: s.company ? 'login' : 'login',
           audit: audit(s.audit, s.session?.accountName ?? '-', '로그아웃', '-', ''),
         });
+      },
+
+      setPlatformMakerName: (name) => {
+        const s = get();
+        if (s.session?.role !== 'platform_admin') {
+          return { ok: false, error: '플랫폼 관리자만 바꿀 수 있습니다.' };
+        }
+        const trimmed = name.trim();
+        if (!trimmed) return { ok: false, error: '이름을 입력하세요.' };
+        set({
+          platformMakerName: trimmed,
+          audit: audit(s.audit, s.session.accountName, '플랫폼 제작자 표기 변경', PLATFORM_MAKER, `→ "${trimmed}"`),
+          ui: { ...s.ui, toast: `플랫폼 제작자 표기를 "${trimmed}"(으)로 바꿨습니다.` },
+        });
+        return { ok: true };
       },
 
       /* ── 회사 창립 ─────────────────────────────────────────────────── */
@@ -919,6 +956,61 @@ export const useWorld = create<Store>()(
         return { gathered, busy };
       },
 
+      sendEmployeeToRoom: (employeeId, room) => {
+        const s = get();
+        const emp = s.employees[employeeId];
+        if (!emp) return { ok: false, error: '직원을 찾을 수 없습니다.' };
+
+        // 인간 직원은 캐릭터처럼 화면 위에서 옮길 수 없다 — 대신 메시지를 남긴다.
+        // (지금은 인간 직원이 실제로 소환되지 않지만, 그 기능이 연결됐을 때를 대비해
+        // 규칙을 미리 맞춰 둔다: AI는 걸어가고, 사람은 메시지를 받는다.)
+        if (emp.kind === 'human') {
+          const roomName = roomById(room).name;
+          const chats = pushMessage(
+            s.chats,
+            employeeId,
+            'ceo',
+            'system',
+            `[메시지] ${roomName}(으)로 와 주실 수 있나요?`,
+          );
+          set({
+            chats,
+            audit: audit(s.audit, s.session?.accountName ?? '-', '메시지 남김', emp.name, roomName),
+            ui: { ...s.ui, toast: `${emp.name}님에게 메시지를 남겼습니다. (실제 발송은 백엔드 연결 후 동작합니다)` },
+          });
+          return { ok: true, messaged: true };
+        }
+
+        const alreadyFreelyWalking = emp.state === 'walking' && !emp.currentMissionId;
+        if (emp.onLeave || !(alreadyFreelyWalking || canAcceptWork(emp.state))) {
+          return { ok: false, error: '지금은 이동시킬 수 없습니다 (업무 중이거나 휴직 중입니다).' };
+        }
+
+        const draft: Employee = { ...emp, pos: { ...emp.pos }, path: [...emp.path] };
+        routeTo(draft, room);
+        if (!alreadyFreelyWalking) applyAgentEvent(draft, { type: 'GO' });
+        draft.lastIdleAt = Date.now();
+
+        const isInterview = room === 'ceo_office';
+        const chats = isInterview
+          ? pushMessage(s.chats, employeeId, 'system', 'system', '[면담] 대표 집무실로 불려 왔습니다. 편하게 이야기해 주세요.')
+          : s.chats;
+
+        set({
+          employees: { ...s.employees, [employeeId]: draft },
+          chats,
+          audit: audit(s.audit, s.session?.accountName ?? '-', '직원 이동', emp.name, roomById(room).name),
+          ui: {
+            ...s.ui,
+            // 대표 집무실로 보내면 도착을 기다리지 않고 바로 1:1 패널을 연다 —
+            // "데려다 놓고 마주 앉아 대화한다"는 면담의 실제 시작점이다.
+            selectedEmployeeId: isInterview ? employeeId : s.ui.selectedEmployeeId,
+            toast: isInterview ? `${emp.name}님과 1:1 면담을 시작합니다.` : `${emp.name}님이 ${roomById(room).name}(으)로 이동합니다.`,
+          },
+        });
+        return { ok: true };
+      },
+
       /* ── 이스터에그 ───────────────────────────────────────────────── */
       tryEasterEggCode: (code) => {
         if (code.trim() !== EASTER_EGG_CODE) return false;
@@ -937,7 +1029,7 @@ export const useWorld = create<Store>()(
           easterEgg: { ...initialEasterEgg, unlocked: true, active: true, startedAt: Date.now() },
           audit: audit(
             s.audit,
-            PLATFORM_MAKER,
+            s.platformMakerName || PLATFORM_MAKER,
             '이스터에그 발견',
             '탱크형 변형 휠 프로젝트',
             '데모 시나리오 시작 (약 20분 · 실제 비용 없음)',
@@ -1043,6 +1135,7 @@ export const useWorld = create<Store>()(
         session: s.session,
         phase: s.phase,
         company: s.company,
+        platformMakerName: s.platformMakerName,
         employees: s.employees,
         employeeOrder: s.employeeOrder,
         memories: s.memories,
