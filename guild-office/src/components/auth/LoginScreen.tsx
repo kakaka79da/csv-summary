@@ -137,7 +137,7 @@ function EasterEggCredit() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-[11px] text-stone-700 transition-colors hover:text-stone-500"
+        className="text-[11px] text-stone-500 transition-colors hover:text-stone-300"
       >
         플랫폼 제작: <span className="underline decoration-dotted">{PLATFORM_MAKER}</span>
       </button>
