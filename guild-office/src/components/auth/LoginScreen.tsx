@@ -4,6 +4,7 @@
  * ⚠️ 이 화면에는 암호 입력이 아예 없다. 프로토타입에서 암호를 다루면
  * 프론트엔드에 자격증명이 남게 되므로, 실제 인증은 백엔드 항목으로 분리한다.
  */
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { Button, Notice } from '@/components/ui/primitives';
@@ -112,7 +113,65 @@ export default function LoginScreen() {
             </div>
           </div>
         ) : null}
+
+        <div className="mt-6 text-center">
+          <EasterEggCredit />
+        </div>
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * 아주 작은 제작자 표기. 이스터에그 진입점이다.
+ * 클릭하면 코드 입력칸이 나타나고, 맞는 코드를 넣으면 숨겨진 데모 시나리오가 시작된다.
+ */
+function EasterEggCredit() {
+  const tryCode = useWorld((s) => s.tryEasterEggCode);
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState(false);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[11px] text-stone-700 transition-colors hover:text-stone-500"
+      >
+        플랫폼 제작: <span className="underline decoration-dotted">{PLATFORM_MAKER}</span>
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const ok = tryCode(code);
+        if (!ok) {
+          setError(true);
+          setCode('');
+        }
+      }}
+      className="inline-flex items-center gap-1.5 text-[11px]"
+    >
+      <input
+        autoFocus
+        value={code}
+        onChange={(e) => {
+          setCode(e.target.value);
+          setError(false);
+        }}
+        placeholder="코드 입력"
+        className={`w-32 rounded border bg-stone-950 px-2 py-0.5 text-stone-200 outline-none ${
+          error ? 'border-ember' : 'border-stone-700 focus:border-gold'
+        }`}
+      />
+      <button type="submit" className="text-gold hover:text-gold-soft">
+        확인
+      </button>
+      {error ? <span className="text-ember">코드가 올바르지 않습니다</span> : null}
+    </form>
   );
 }

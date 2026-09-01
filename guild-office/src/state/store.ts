@@ -13,6 +13,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { GRID } from '@/data/world';
 import {
   AI_EMPLOYEE_SEEDS,
+  COMPANY_DEFAULTS,
   GREETINGS,
   PLATFORM_MAKER,
   WALK_SPEED,
@@ -24,6 +25,13 @@ import { advanceAlongPath, findPath } from '@/lib/pathfinding';
 import { clamp, nid } from '@/lib/format';
 import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
 import { seedMemory, type MemoryAgreement } from '@/data/memorySeed';
+import {
+  EASTER_EGG_CODE,
+  advanceEasterEgg,
+  initialEasterEgg,
+  resetEasterEggEmployees,
+  type EasterEggRuntime,
+} from '@/data/easterEgg';
 import { canAcceptWork, nextAgentState, type AgentEvent } from '@/state/agentMachine';
 import {
   buildDirectMission,
@@ -92,6 +100,13 @@ export interface WorldState {
 
   /** 튜토리얼 진행 표시 */
   tutorial: { summoned: boolean; interviewsDone: boolean; firstMissionDone: boolean };
+
+  /**
+   * 이스터에그 — "탱크형 변형 휠" 데모 시나리오 진행 상태.
+   * 새로고침 시 초기화된다(partialize 에 포함하지 않음). 실제 비용·승인과는
+   * 완전히 무관한 가상 시나리오임을 항상 배너·보고 문구로 함께 밝힌다.
+   */
+  easterEgg: EasterEggRuntime;
 }
 
 export interface WorldActions {
@@ -144,6 +159,15 @@ export interface WorldActions {
    */
   callPriorityMeeting: (instruction: string) => { gathered: string[]; busy: string[] };
 
+  /**
+   * 로그인 화면의 숨은 제작자 표기에서 코드를 맞히면 호출된다.
+   * 코드가 맞으면 필요한 경우 데모 로그인·회사 창립·직원 소환까지 자동으로 처리하고
+   * "탱크형 변형 휠" 이스터에그 시나리오를 시작한다. 맞지 않으면 아무 것도 바꾸지 않는다.
+   */
+  tryEasterEggCode: (code: string) => boolean;
+  /** 이스터에그를 도중에 멈추고 세 직원을 안전하게 대기 상태로 되돌린다. */
+  stopEasterEgg: () => void;
+
   sendChat: (employeeId: string, text: string) => void;
 
   /** 기억 한 줄을 append 한다 (교훈/사건/선호/정정). 기존 기억은 지우지 않는다. */
@@ -184,6 +208,7 @@ const initialState: WorldState = {
   chats: {},
   ui: { selectedEmployeeId: null, openPanel: null, interviewQueue: [], toast: null },
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
+  easterEgg: initialEasterEgg,
 };
 
 /* ────────────────────────────── 보조 함수 ────────────────────────────── */
@@ -894,6 +919,45 @@ export const useWorld = create<Store>()(
         return { gathered, busy };
       },
 
+      /* ── 이스터에그 ───────────────────────────────────────────────── */
+      tryEasterEggCode: (code) => {
+        if (code.trim() !== EASTER_EGG_CODE) return false;
+
+        if (!get().session) get().loginDemo('ceo');
+        if (!get().company) {
+          get().foundCompany({ ...COMPANY_DEFAULTS });
+          get().buildOffice();
+        }
+        if (Object.keys(get().employees).length < 3) get().summonEmployees();
+
+        const s = get();
+        set({
+          phase: 'live',
+          tutorial: { summoned: true, interviewsDone: true, firstMissionDone: true },
+          easterEgg: { ...initialEasterEgg, unlocked: true, active: true, startedAt: Date.now() },
+          audit: audit(
+            s.audit,
+            PLATFORM_MAKER,
+            '이스터에그 발견',
+            '탱크형 변형 휠 프로젝트',
+            '데모 시나리오 시작 (약 20분 · 실제 비용 없음)',
+          ),
+          ui: { ...s.ui, toast: '🥚 이스터에그 발견! "탱크형 변형 휠" 프로젝트 데모가 시작됩니다.' },
+        });
+        return true;
+      },
+
+      stopEasterEgg: () => {
+        const s = get();
+        if (!s.easterEgg.active) return;
+        set({
+          employees: resetEasterEggEmployees(s.employees),
+          easterEgg: { ...initialEasterEgg, unlocked: true },
+          audit: audit(s.audit, s.session?.accountName ?? PLATFORM_MAKER, '이스터에그 중단', '탱크형 변형 휠 프로젝트', '수동 종료'),
+          ui: { ...s.ui, toast: '이스터에그 데모를 종료했습니다.' },
+        });
+      },
+
       /* ── UI ───────────────────────────────────────────────────────── */
       sendChat: (employeeId, text) => {
         const s = get();
@@ -1224,8 +1288,12 @@ export function advanceWorld(s: WorldState, dtMs: number): Partial<WorldState> {
 
   /* 3) 유휴 행동 — 비용이 발생하지 않는 시각적 행동
      이동 중에는 상태가 'walking' 으로 유지되고, 도착한 뒤에야 휴식/낚시로 확정된다.
-     (걸어가는 중인데 화면에는 "휴식 중"으로 보이는 불일치를 막기 위함) */
+     (걸어가는 중인데 화면에는 "휴식 중"으로 보이는 불일치를 막기 위함)
+     이스터에그가 진행 중일 때는 아래 "4) 이스터에그 디렉터"가 세 직원의 이동·상태를
+     전적으로 대신 관리하므로, 여기서 끼어들어 되돌리지 않는다. */
+  const eggActive = s.easterEgg.active;
   for (const emp of Object.values(employees)) {
+    if (eggActive) continue;
     if (emp.currentMissionId) continue;
 
     if (emp.state === 'completed') {
@@ -1256,5 +1324,22 @@ export function advanceWorld(s: WorldState, dtMs: number): Partial<WorldState> {
     }
   }
 
-  return { employees, missions, ledger, artifacts, chats, approvals, audit: auditLog, memories };
+  /* 4) 이스터에그 디렉터 — "탱크형 변형 휠" 데모 대본 진행.
+     실제 API 호출도, 실제 비용도 없다. 캐릭터 상태는 전부 agentMachine.ts 의
+     합법적인 전이만으로 바뀐다. */
+  const eggResult = advanceEasterEgg(s.easterEgg, employees, chats, now);
+  chats = eggResult.chats;
+
+  return {
+    employees,
+    missions,
+    ledger,
+    artifacts,
+    chats,
+    approvals,
+    audit: auditLog,
+    memories,
+    easterEgg: eggResult.egg,
+    ...(eggResult.toast ? { ui: { ...s.ui, toast: eggResult.toast } } : {}),
+  };
 }

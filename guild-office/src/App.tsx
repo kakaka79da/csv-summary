@@ -4,6 +4,7 @@
 import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
+import { EASTER_EGG_TOTAL_MS } from '@/data/easterEgg';
 import LoginScreen from '@/components/auth/LoginScreen';
 import FoundingFlow from '@/components/onboarding/FoundingFlow';
 import InterviewFlow from '@/components/onboarding/InterviewFlow';
@@ -140,6 +141,36 @@ const PANELS = [
   ['settings', '설정 · 보안'],
 ] as const;
 
+function mmss(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/**
+ * "탱크형 변형 휠" 이스터에그가 진행 중일 때만 보이는 배너.
+ * 실제 업무·비용과 완전히 무관한 가상 시나리오라는 사실을 항상 함께 밝힌다.
+ */
+function EasterEggBanner() {
+  const egg = useWorld((s) => s.easterEgg);
+  const stop = useWorld((s) => s.stopEasterEgg);
+  if (!egg.active || egg.startedAt === null) return null;
+
+  const elapsed = Date.now() - egg.startedAt;
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-gold/40 bg-gold/5 px-3 py-2 text-xs text-gold">
+      <span>
+        🥚 이스터에그 진행 중 · 「탱크형 변형 휠」 프로젝트 데모 · {mmss(elapsed)} / {mmss(EASTER_EGG_TOTAL_MS)}
+        <span className="ml-2 text-stone-400">실제 업무·비용은 발생하지 않는 가상 시나리오입니다.</span>
+      </span>
+      <Button size="sm" variant="quiet" onClick={stop}>
+        종료
+      </Button>
+    </div>
+  );
+}
+
 function OfficeScreen() {
   const order = useWorld((s) => s.employeeOrder);
   const employees = useWorld((s) => s.employees);
@@ -156,6 +187,7 @@ function OfficeScreen() {
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-4">
+      <EasterEggBanner />
       <div className="mb-3 flex flex-wrap gap-1.5">
         {PANELS.map(([id, label]) => (
           <Button key={id} size="sm" variant={openPanel === id ? 'primary' : 'ghost'} onClick={() => setPanel(id)}>

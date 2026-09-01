@@ -45,6 +45,24 @@ function emp(id: string): Employee {
   return useWorld.getState().employees[id];
 }
 
+/**
+ * 이스터에그 대본은 실제 벽시계 시각(Date.now())을 기준으로 진행되므로,
+ * 테스트에서 실제로 20분을 기다리지 않고도 검증할 수 있도록 매 스텝마다
+ * startedAt 을 dtMs 만큼 과거로 밀어 넣는다 — 걸음(이동)과 대본 진행 속도를
+ * 정확히 같은 비율로 "빨리 감기" 하는 셈이다.
+ */
+function advanceEggBy(seconds: number) {
+  const stepMs = 200;
+  const steps = Math.ceil((seconds * 1000) / stepMs);
+  for (let i = 0; i < steps; i++) {
+    const cur = useWorld.getState().easterEgg;
+    if (cur.active && cur.startedAt !== null) {
+      useWorld.setState({ easterEgg: { ...cur, startedAt: cur.startedAt - stepMs } });
+    }
+    useWorld.getState().tick(stepMs);
+  }
+}
+
 beforeEach(() => {
   useWorld.getState().resetAll();
 });
@@ -412,5 +430,91 @@ describe('우선순위 회의 소집', () => {
     const chat = useWorld.getState().chats.emp_admin!.at(-1)!;
     expect(chat.kind).toBe('system');
     expect(chat.text).toContain('회의 테이블로 집합');
+  });
+});
+
+describe('이스터에그 — 탱크형 변형 휠 데모', () => {
+  it('틀린 코드는 아무것도 바꾸지 않는다', () => {
+    const ok = useWorld.getState().tryEasterEggCode('아무거나');
+    expect(ok).toBe(false);
+    expect(useWorld.getState().session).toBeNull();
+    expect(useWorld.getState().easterEgg.active).toBe(false);
+  });
+
+  it('맞는 코드는 로그인·창립·소환이 안 되어 있어도 전부 자동으로 준비하고 시작한다', () => {
+    expect(useWorld.getState().session).toBeNull();
+    expect(useWorld.getState().company).toBeNull();
+
+    const ok = useWorld.getState().tryEasterEggCode('mkang428428');
+    expect(ok).toBe(true);
+
+    const s = useWorld.getState();
+    expect(s.session?.role).toBe('ceo');
+    expect(s.company).not.toBeNull();
+    expect(Object.keys(s.employees).sort()).toEqual(['emp_admin', 'emp_engineer', 'emp_professor']);
+    expect(s.phase).toBe('live');
+    expect(s.easterEgg.active).toBe(true);
+    expect(s.easterEgg.startedAt).not.toBeNull();
+    expect(s.ui.toast).toContain('이스터에그');
+  });
+
+  it('이미 진행 중인 회사/직원이 있으면 그대로 이어서 쓴다', () => {
+    bootstrap();
+    connectAll();
+    const before = useWorld.getState().company?.name;
+
+    useWorld.getState().tryEasterEggCode('mkang428428');
+
+    expect(useWorld.getState().company?.name).toBe(before);
+    expect(useWorld.getState().easterEgg.active).toBe(true);
+  });
+
+  it('시나리오 도중 카일이 버그를 만나면 낚시터로, 이어서 훈련장으로 이동한다', () => {
+    useWorld.getState().tryEasterEggCode('mkang428428');
+
+    // 6:40 이후 낚시터로 향하고, 도착하면 'fishing' 상태가 된다.
+    advanceEggBy(7 * 60 + 15);
+    expect(emp('emp_engineer').state).toBe('fishing');
+    expect(emp('emp_engineer').destinationRoom).toBe('fishing');
+
+    // 9:10 이후 훈련장으로 이동해 'playing'(훈련) 상태가 된다.
+    advanceEggBy(2 * 60 + 30); // 누적 약 9:45
+    expect(emp('emp_engineer').state).toBe('playing');
+    expect(emp('emp_engineer').destinationRoom).toBe('training');
+  });
+
+  it('20분 대본이 끝나면 최종 보고가 남고, 실제 비용은 전혀 발생하지 않는다', () => {
+    useWorld.getState().tryEasterEggCode('mkang428428');
+
+    advanceEggBy(21 * 60); // 대본 전체 길이(약 19:45)보다 넉넉히 더 돌린다
+
+    const s = useWorld.getState();
+    expect(s.easterEgg.active).toBe(false);
+
+    const adminChat = s.chats.emp_admin ?? [];
+    const report = adminChat.find((m) => m.kind === 'report' && m.text.includes('탱크형 변형 휠'));
+    expect(report).toBeTruthy();
+    expect(report?.text).toContain('이스터에그 데모 시나리오');
+
+    // 핵심 보장: 이스터에그는 실제 미션/원장에 아무 흔적도 남기지 않는다.
+    expect(s.ledger).toHaveLength(0);
+    expect(Object.keys(s.missions)).toHaveLength(0);
+    for (const id of s.employeeOrder) {
+      expect(s.employees[id].spendTodayUsd).toBe(0);
+      expect(s.employees[id].spendMonthUsd).toBe(0);
+    }
+  });
+
+  it('도중에 종료하면 세 직원 모두 안전하게 대기 상태로 돌아간다', () => {
+    useWorld.getState().tryEasterEggCode('mkang428428');
+    advanceEggBy(3 * 60); // 회의 중간쯤
+
+    useWorld.getState().stopEasterEgg();
+
+    const s = useWorld.getState();
+    expect(s.easterEgg.active).toBe(false);
+    for (const id of s.employeeOrder) {
+      expect(['idle', 'walking']).toContain(s.employees[id].state);
+    }
   });
 });
