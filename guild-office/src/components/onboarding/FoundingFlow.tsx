@@ -99,7 +99,7 @@ function CompanyForm() {
               }`}
             >
               <svg viewBox="0 0 24 28" className="h-14 w-12">
-                <CharacterSprite palette={a.palette} sigil="♛" state="idle" />
+                <CharacterSprite palette={a.palette} sigil="♛" state="idle" jobClass="sovereign" />
               </svg>
               <span className="text-xs text-stone-200">{a.label}</span>
               <span className="text-[10px] text-stone-500">{a.desc}</span>
@@ -192,7 +192,7 @@ function SummonScene() {
                 className="panel p-4 text-center"
               >
                 <svg viewBox="0 0 24 28" className="mx-auto h-24 w-20">
-                  <CharacterSprite palette={spec.palette} sigil={spec.sigil} state="idle" />
+                  <CharacterSprite palette={spec.palette} sigil={spec.sigil} state="idle" jobClass={spec.jobClass} />
                 </svg>
                 <div className="mt-2 font-display text-lg text-gold">{spec.name}</div>
                 <div className="text-xs text-stone-300">{spec.title}</div>

@@ -66,7 +66,12 @@ export default function InterviewFlow() {
         {/* 1. 이름 확인 & 역할 설명 */}
         <div className="flex gap-4">
           <svg viewBox="0 0 24 28" className="h-24 w-20 shrink-0">
-            <CharacterSprite palette={employee.palette} sigil={employee.sigil} state="idle" />
+            <CharacterSprite
+              palette={employee.palette}
+              sigil={employee.sigil}
+              state="idle"
+              jobClass={employee.jobClass}
+            />
           </svg>
           <div className="min-w-0 flex-1">
             <h1 className="rune-title text-2xl">{employee.name}</h1>

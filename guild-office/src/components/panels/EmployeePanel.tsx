@@ -65,7 +65,12 @@ export default function EmployeePanel({ employeeId }: { employeeId: string }) {
       {/* 헤더 */}
       <div className="flex items-start gap-3 border-b border-stone-700/70 p-4">
         <svg viewBox="0 0 24 28" className="h-16 w-14 shrink-0">
-          <CharacterSprite palette={employee.palette} sigil={employee.sigil} state={employee.state} />
+          <CharacterSprite
+            palette={employee.palette}
+            sigil={employee.sigil}
+            state={employee.state}
+            jobClass={employee.jobClass}
+          />
         </svg>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">

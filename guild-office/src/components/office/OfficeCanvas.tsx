@@ -1,24 +1,37 @@
 /**
- * 2D 탑다운 오피스 뷰 (SVG).
+ * 오피스 뷰 (SVG, 2D 탑다운).
+ *
+ * 컨셉은 '농장형 오픈에어 캠퍼스'다. 실내 칸막이 대신 목재 데크와 텃밭 화단으로
+ * 공간을 나누고, 캠퍼스 바깥에는 과수원과 밭이 이어진다.
  *
  * 렌더링은 상태를 읽기만 한다. 캐릭터 위치·상태는 스토어의 tick 이 계산하며,
  * 여기서는 그 값을 그리기만 하므로 "보이는 것"과 "실제"가 어긋날 수 없다.
  *
- * 그리는 순서가 중요하다: 바닥 → 방 바닥 → 벽 → 가구 → 문 → 방 이름 → 캐릭터.
- * (방 이름을 벽보다 먼저 그리면 벽에 가려 읽을 수 없다)
+ * 그리는 순서: 시골 배경 → 자갈길 → 방 데크 → 방 소품 → 화단/울타리(벽) →
+ *              가구 → 출입구 → 방 이름 → 캐릭터.
  */
 import { motion } from 'framer-motion';
 import { FURNITURE, OFFICE_H, OFFICE_W, ROOMS } from '@/data/seed';
 import { GRID } from '@/data/world';
 import { useWorld } from '@/state/store';
 import CharacterSprite from '@/components/office/CharacterSprite';
+import {
+  Countryside,
+  FenceTile,
+  PALETTE,
+  PlanterTile,
+  RoomScenery,
+  SceneryDefs,
+} from '@/components/office/scenery';
 import { AGENT_STATE_LABEL } from '@/lib/format';
-import type { Company } from '@/types';
+import type { Company, RoomId } from '@/types';
 
 const SPRITE_W = 1.5;
 const SPRITE_H = 1.8;
 const SX = SPRITE_W / 24;
 const SY = SPRITE_H / 28;
+/** 캠퍼스 바깥으로 보여 줄 시골 풍경의 여백 (타일) */
+const MARGIN = 3;
 
 /** 대표 캐릭터가 서는 자리 (집무실 안, 책상 오른쪽) */
 const CEO_SPOT = { x: 7.4, y: 4.2 };
@@ -30,13 +43,43 @@ const CEO_PALETTE: Record<Company['ceoAppearance'], { robe: string; trim: string
   artificer: { robe: '#3f5a3a', trim: '#d9c184', aura: '#8fe0bb' },
 };
 
-/** 글자가 어두운 배경에 묻히지 않도록 외곽선을 깔아 준다. */
-const OUTLINED = {
-  stroke: '#0d0b0f',
-  strokeWidth: 0.16,
-  paintOrder: 'stroke' as const,
-  strokeLinejoin: 'round' as const,
+/** 방마다 데크 위에 얹는 옅은 색조 */
+const DECK_TINT: Record<RoomId, string> = {
+  ceo_office: '#c08a3f',
+  lab: '#5fa88f',
+  sales_room: '#a9793f',
+  meeting: '#9c7b4a',
+  admin_desk: '#8f7bb5',
+  api_room: '#5f7a86',
+  lounge: '#6ea84f',
+  fishing: '#4f8fa8',
+  training: '#a08a5c',
+  dungeon_gate: '#7a3d52',
 };
+
+/** 통과 불가 가구를 종류에 맞게 그린다. */
+function FurnitureTile({ x, y, room }: { x: number; y: number; room: RoomId }) {
+  const body: Record<string, string> = {
+    ceo_office: '#7a5a36',
+    lab: '#6f8790',
+    sales_room: '#7a5a36',
+    meeting: '#8a6a44',
+    admin_desk: '#6a5f7a',
+    lounge: '#8a5340',
+    fishing: PALETTE.water,
+  };
+  const fill = body[room] ?? '#7a5a36';
+  if (room === 'fishing') {
+    return <rect x={x} y={y} width={1} height={1} fill="url(#water)" />;
+  }
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <rect width={1} height={1} rx={0.1} fill={fill} />
+      <rect y={0.72} width={1} height={0.28} rx={0.08} fill="#000" opacity={0.18} />
+      <rect x={0.12} y={0.16} width={0.76} height={0.34} rx={0.06} fill="#fff" opacity={0.12} />
+    </g>
+  );
+}
 
 export default function OfficeCanvas() {
   const employees = useWorld((s) => s.employees);
@@ -46,134 +89,146 @@ export default function OfficeCanvas() {
   const select = useWorld((s) => s.selectEmployee);
 
   // 가구 타일은 벽과 구분해서 칠하기 위해 따로 모아 둔다.
-  const furnitureKeys = new Set(FURNITURE.flatMap((f) => f.tiles.map((t) => `${t.x},${t.y}`)));
-  const walls: Array<{ x: number; y: number }> = [];
+  const furnitureByKey = new Map<string, RoomId>();
+  for (const f of FURNITURE) for (const t of f.tiles) furnitureByKey.set(`${t.x},${t.y}`, f.room);
+
+  const fences: Array<{ x: number; y: number }> = [];
+  const planters: Array<{ x: number; y: number }> = [];
   for (let y = 0; y < OFFICE_H; y++) {
     for (let x = 0; x < OFFICE_W; x++) {
-      if (GRID.blocked[y * OFFICE_W + x] === 1 && !furnitureKeys.has(`${x},${y}`)) walls.push({ x, y });
+      if (GRID.blocked[y * OFFICE_W + x] !== 1) continue;
+      if (furnitureByKey.has(`${x},${y}`)) continue;
+      const onBorder = x === 0 || y === 0 || x === OFFICE_W - 1 || y === OFFICE_H - 1;
+      (onBorder ? fences : planters).push({ x, y });
     }
   }
 
   return (
     <div className="panel overflow-hidden">
-      <svg viewBox={`0 0 ${OFFICE_W} ${OFFICE_H}`} className="block w-full" role="img" aria-label="오피스 평면도">
-        {/* 복도 바닥 */}
-        <rect x={0} y={0} width={OFFICE_W} height={OFFICE_H} fill="#241f31" />
-        <g opacity={0.2}>
-          {Array.from({ length: OFFICE_W + 1 }, (_, i) => (
-            <line key={`v${i}`} x1={i} y1={0} x2={i} y2={OFFICE_H} stroke="#4a4258" strokeWidth={0.02} />
-          ))}
-          {Array.from({ length: OFFICE_H + 1 }, (_, i) => (
-            <line key={`h${i}`} x1={0} y1={i} x2={OFFICE_W} y2={i} stroke="#4a4258" strokeWidth={0.02} />
-          ))}
-        </g>
+      <svg
+        viewBox={`${-MARGIN} ${-MARGIN} ${OFFICE_W + MARGIN * 2} ${OFFICE_H + MARGIN * 2}`}
+        className="block w-full"
+        role="img"
+        aria-label="오피스 평면도"
+      >
+        <SceneryDefs />
 
-        {/* 방 바닥 */}
+        {/* 바깥 시골 풍경 */}
+        <Countryside w={OFFICE_W} h={OFFICE_H} margin={MARGIN} />
+
+        {/* 캠퍼스 바닥 = 자갈길 */}
+        <rect x={0} y={0} width={OFFICE_W} height={OFFICE_H} fill="url(#gravel)" />
+
+        {/* 방 = 목재 데크 */}
         {ROOMS.map((room) => (
-          <rect
-            key={`floor-${room.id}`}
-            x={room.rect.x}
-            y={room.rect.y}
-            width={room.rect.w}
-            height={room.rect.h}
-            fill={room.id === 'dungeon_gate' ? '#4a2839' : '#3a3150'}
-          />
-        ))}
-
-        {/* 벽 */}
-        {walls.map((w) => (
-          <rect key={`w-${w.x}-${w.y}`} x={w.x} y={w.y} width={1} height={1} fill="#100d17" />
-        ))}
-
-        {/* 가구 (벽과 다른 색으로 구분) */}
-        {FURNITURE.flatMap((f) =>
-          f.tiles.map((t) => (
-            <rect key={`f-${t.x}-${t.y}`} x={t.x} y={t.y} width={1} height={1} rx={0.12} fill="#6b5535" />
-          )),
-        )}
-
-        {/* 문 */}
-        {ROOMS.map((room) => (
-          <rect
-            key={`door-${room.id}`}
-            x={room.door.x + 0.12}
-            y={room.door.y + 0.12}
-            width={0.76}
-            height={0.76}
-            rx={0.16}
-            fill="none"
-            stroke="#d9a441"
-            strokeWidth={0.08}
-            opacity={0.65}
-          />
-        ))}
-
-        {/* 던전 입구 표식 */}
-        <motion.circle
-          cx={3}
-          cy={10.4}
-          r={0.9}
-          fill="#d8604f"
-          animate={{ opacity: [0.15, 0.4, 0.15] }}
-          transition={{ duration: 2.4, repeat: Infinity }}
-        />
-
-        {/* 방 이름 (벽 위에 그린다) */}
-        {ROOMS.map((room) => (
-          <g key={`label-${room.id}`}>
-            <text
-              x={room.rect.x + room.rect.w / 2}
-              y={room.rect.y + 1.75}
-              textAnchor="middle"
-              fontSize={0.52}
-              fill="#cfc6dd"
-              {...OUTLINED}
-            >
-              {room.name}
-            </text>
-            <text
-              x={room.rect.x + room.rect.w / 2}
-              y={room.rect.y + 2.35}
-              textAnchor="middle"
-              fontSize={0.38}
-              fill="#8d84a0"
-              {...OUTLINED}
-            >
-              {room.flavor}
-            </text>
+          <g key={`deck-${room.id}`}>
+            <rect
+              x={room.rect.x}
+              y={room.rect.y}
+              width={room.rect.w}
+              height={room.rect.h}
+              fill="url(#deck)"
+            />
+            <rect
+              x={room.rect.x}
+              y={room.rect.y}
+              width={room.rect.w}
+              height={room.rect.h}
+              fill={DECK_TINT[room.id]}
+              opacity={room.id === 'dungeon_gate' ? 0.42 : 0.2}
+            />
           </g>
         ))}
 
-        {/* 가구 이름 */}
-        {FURNITURE.map((f) => (
-          <text
-            key={f.label}
-            x={f.tiles[0].x + 0.1}
-            y={f.tiles[0].y + 1.55}
-            fontSize={0.32}
-            fill="#b8a47c"
-            {...OUTLINED}
-          >
-            {f.label}
-          </text>
+        {/* 방별 소품 */}
+        {ROOMS.map((room) => (
+          <RoomScenery key={`prop-${room.id}`} id={room.id} rect={room.rect} />
         ))}
+
+        {/* 벽 — 안쪽은 통과 불가 텃밭 화단, 바깥 테두리는 나무 울타리 */}
+        {planters.map((p) => (
+          <PlanterTile key={`p-${p.x}-${p.y}`} x={p.x} y={p.y} />
+        ))}
+        {fences.map((p) => (
+          <FenceTile key={`fc-${p.x}-${p.y}`} x={p.x} y={p.y} />
+        ))}
+
+        {/* 가구 (통과 불가) */}
+        {[...furnitureByKey.entries()].map(([key, room]) => {
+          const [fx, fy] = key.split(',').map(Number);
+          return <FurnitureTile key={`fu-${key}`} x={fx} y={fy} room={room} />;
+        })}
+
+        {/* 출입구 — 화단 사이의 문기둥 */}
+        {ROOMS.map((room) => (
+          <g key={`door-${room.id}`}>
+            <rect x={room.door.x} y={room.door.y} width={1} height={1} fill="url(#deck)" opacity={0.55} />
+            <rect x={room.door.x} y={room.door.y - 0.06} width={1} height={0.16} rx={0.06} fill={PALETTE.woodDark} />
+            <rect x={room.door.x} y={room.door.y + 0.9} width={1} height={0.16} rx={0.06} fill={PALETTE.woodDark} />
+          </g>
+        ))}
+
+        {/* 던전 입구의 붉은 기운 */}
+        <motion.ellipse
+          cx={3}
+          cy={10.4}
+          rx={1.4}
+          ry={0.9}
+          fill="#d8604f"
+          animate={{ opacity: [0.12, 0.34, 0.12] }}
+          transition={{ duration: 2.6, repeat: Infinity }}
+        />
+
+        {/* 방 이름 표지판 */}
+        {ROOMS.map((room) => {
+          const cx = room.rect.x + room.rect.w / 2;
+          const cy = room.rect.y + 0.9;
+          const label = room.name;
+          const wSign = Math.max(2.6, label.length * 0.42 + 0.9);
+          return (
+            <g key={`label-${room.id}`}>
+              <rect
+                x={cx - wSign / 2}
+                y={cy - 0.52}
+                width={wSign}
+                height={1.02}
+                rx={0.14}
+                fill="#241a12"
+                opacity={0.82}
+              />
+              <rect
+                x={cx - wSign / 2}
+                y={cy - 0.52}
+                width={wSign}
+                height={1.02}
+                rx={0.14}
+                fill="none"
+                stroke={PALETTE.deckLight}
+                strokeWidth={0.05}
+                opacity={0.8}
+              />
+              <text x={cx} y={cy - 0.06} textAnchor="middle" fontSize={0.46} fill="#f4e9d8">
+                {label}
+              </text>
+              <text x={cx} y={cy + 0.38} textAnchor="middle" fontSize={0.32} fill="#b9a98f">
+                {room.flavor}
+              </text>
+            </g>
+          );
+        })}
 
         {/* 대표 캐릭터 (고정 위치) */}
         {company ? (
           <g transform={`translate(${CEO_SPOT.x - SPRITE_W / 2}, ${CEO_SPOT.y - SPRITE_H + 0.5})`}>
             <g transform={`scale(${SX} ${SY})`}>
-              <CharacterSprite palette={CEO_PALETTE[company.ceoAppearance]} sigil="♛" state="idle" />
+              <CharacterSprite
+                palette={CEO_PALETTE[company.ceoAppearance]}
+                sigil="♛"
+                state="idle"
+                jobClass="sovereign"
+              />
             </g>
-            <text
-              x={SPRITE_W / 2}
-              y={SPRITE_H + 0.42}
-              textAnchor="middle"
-              fontSize={0.4}
-              fill="#d9a441"
-              {...OUTLINED}
-            >
-              {company.ceoCharacterName} · 대표
-            </text>
+            <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34} text={`${company.ceoCharacterName} · 대표`} tone="#f0cd85" />
           </g>
         ) : null}
 
@@ -185,8 +240,9 @@ export default function OfficeCanvas() {
           const label = AGENT_STATE_LABEL[emp.state];
           // 휴게실 등에서 여러 명이 같은 칸에 겹쳐 보이지 않도록 아주 작은 오프셋을 준다
           const slot = order.indexOf(id);
-          const nudge = (slot - 1) * 0.55;
-          const labelDy = (slot % 2) * 0.44;
+          const nudge = (slot - 1) * 0.8;
+          // 같은 칸에 모여 있어도 이름표가 겹치지 않도록 직원마다 다른 높이에 둔다
+          const labelDy = slot * 0.62;
           return (
             // 위치는 transform 속성으로 직접 지정한다.
             // framer-motion 의 x/y 는 SVG 에서 CSS 픽셀로 해석되어 viewBox 단위와 어긋난다.
@@ -197,38 +253,25 @@ export default function OfficeCanvas() {
               style={{ cursor: 'pointer' }}
             >
               {selected ? (
-                <circle
+                <ellipse
                   cx={SPRITE_W / 2}
-                  cy={SPRITE_H - 0.15}
-                  r={1.05}
+                  cy={SPRITE_H - 0.05}
+                  rx={1.05}
+                  ry={0.5}
                   fill="none"
-                  stroke="#d9a441"
-                  strokeWidth={0.09}
+                  stroke="#ffd980"
+                  strokeWidth={0.1}
                 />
               ) : null}
               <g transform={`scale(${SX} ${SY})`}>
-                <CharacterSprite palette={emp.palette} sigil={emp.sigil} state={emp.state} />
+                <CharacterSprite
+                  palette={emp.palette}
+                  sigil={emp.sigil}
+                  state={emp.state}
+                  jobClass={emp.jobClass}
+                />
               </g>
-              <text
-                x={SPRITE_W / 2}
-                y={SPRITE_H + 0.4 + labelDy}
-                textAnchor="middle"
-                fontSize={0.4}
-                fill="#efe9f8"
-                {...OUTLINED}
-              >
-                {emp.name}
-              </text>
-              <text
-                x={SPRITE_W / 2}
-                y={SPRITE_H + 0.85 + labelDy}
-                textAnchor="middle"
-                fontSize={0.33}
-                fill="#a89fbb"
-                {...OUTLINED}
-              >
-                {label.game}
-              </text>
+              <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34 + labelDy} text={`${emp.name} · ${label.game}`} />
             </g>
           );
         })}
@@ -237,19 +280,32 @@ export default function OfficeCanvas() {
       {/* 범례 — 게임 표현과 실제 의미를 연결한다 */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-stone-800 px-3 py-2 text-[10px] text-stone-500">
         <span>
-          <span className="mr-1 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: '#544869' }} />
-          벽
+          <span className="mr-1 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: PALETTE.deck }} />
+          목재 데크 = 업무 공간
         </span>
         <span>
-          <span className="mr-1 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: '#6b5535' }} />
-          가구 (통과 불가)
+          <span className="mr-1 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: PALETTE.soil }} />
+          텃밭 화단 = 통과 불가
         </span>
         <span>
-          <span className="mr-1 inline-block h-2 w-2 rounded-sm border align-middle" style={{ borderColor: '#d9a441' }} />
-          출입구
+          <span className="mr-1 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: PALETTE.gravel }} />
+          자갈길 = 이동 경로
         </span>
-        <span>캐릭터 아래 표시는 현재 상태이며, 상세 의미는 직원 패널에서 확인할 수 있습니다.</span>
+        <span>캐릭터 이름표의 뒷부분은 현재 상태이며, 정확한 의미는 직원 패널에서 확인할 수 있습니다.</span>
       </div>
     </div>
+  );
+}
+
+/** 캐릭터 이름표 — 배경 위에서도 항상 읽히도록 판을 깔아 준다. */
+function NameTag({ x, y, text, tone = '#f2ecf8' }: { x: number; y: number; text: string; tone?: string }) {
+  const w = Math.max(1.8, text.length * 0.34 + 0.5);
+  return (
+    <g>
+      <rect x={x - w / 2} y={y - 0.38} width={w} height={0.56} rx={0.14} fill="#12100c" opacity={0.72} />
+      <text x={x} y={y} textAnchor="middle" fontSize={0.38} fill={tone}>
+        {text}
+      </text>
+    </g>
   );
 }
