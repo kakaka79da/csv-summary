@@ -5,7 +5,9 @@ import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { EASTER_EGG_TOTAL_MS } from '@/data/easterEgg';
+import { PLATFORM_MAKER } from '@/data/seed';
 import LoginScreen from '@/components/auth/LoginScreen';
+import EasterEggCredit from '@/components/auth/EasterEggCredit';
 import FoundingFlow from '@/components/onboarding/FoundingFlow';
 import InterviewFlow from '@/components/onboarding/InterviewFlow';
 import FirstMissionBriefing from '@/components/onboarding/FirstMissionBriefing';
@@ -91,6 +93,7 @@ function AppHeader() {
   const ledger = useWorld((s) => s.ledger);
   const approvals = useWorld((s) => s.approvals);
   const logout = useWorld((s) => s.logout);
+  const makerName = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
 
   const spent = ledger.reduce((s, e) => s + e.costUsd, 0);
   const pending = approvals.filter((a) => a.status === 'pending').length;
@@ -120,6 +123,7 @@ function AppHeader() {
               ({session?.role === 'ceo' ? '대표' : session?.role === 'platform_admin' ? '플랫폼 관리자' : '인간 직원'})
             </span>
           </span>
+          <EasterEggCredit makerName={makerName} />
           <Button size="sm" variant="quiet" onClick={logout}>
             로그아웃
           </Button>
