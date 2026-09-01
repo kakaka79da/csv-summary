@@ -262,10 +262,10 @@ interface SeedSpec {
 export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
   {
     id: 'emp_admin',
-    name: '세라',
+    name: '엘레나',
     title: '총무 매니저',
     jobClass: 'strategist',
-    jobLabel: '전략가 · 서기관',
+    jobLabel: '전술 서기관 · Tactical Scribe',
     homeRoom: 'admin_desk',
     palette: { robe: '#22335c', trim: '#c8d3e2', aura: '#7fd6f5' },
     sigil: '✦',
@@ -275,10 +275,10 @@ export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
   },
   {
     id: 'emp_engineer',
-    name: '루온',
+    name: '카일',
     title: '수석 연구 엔지니어',
     jobClass: 'rune_engineer',
-    jobLabel: '마법공학자 · 룬 엔지니어',
+    jobLabel: '룬 마법공학자 · Rune Tech-Engineer',
     homeRoom: 'lab',
     palette: { robe: '#16181f', trim: '#3fd2e8', aura: '#3fd2e8' },
     sigil: '⚙',
@@ -288,12 +288,12 @@ export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
   },
   {
     id: 'emp_professor',
-    name: '미르',
+    name: '올리비아',
     title: '행동 심리학 교수',
     jobClass: 'sage',
-    jobLabel: '현자 · 협상가',
+    jobLabel: '공감의 현자 · Empathic Diplomat',
     homeRoom: 'sales_room',
-    palette: { robe: '#3a3740', trim: '#efe2c6', aura: '#f0b957' },
+    palette: { robe: '#3f3a44', trim: '#e8dcc0', aura: '#f0b957' },
     sigil: '❖',
     scope: '설득 문서, 영업 자료, 고객 대응, 대외 협력',
     greeting: '설득이 필요한 문서를 씁니다. 외부로 나가기 전에는 반드시 검토를 요청드립니다.',
@@ -343,6 +343,22 @@ export const DUTIES: Record<AiEmployeeId, string[]> = {
   emp_admin: AI_EMPLOYEE_SEEDS[0].duties,
   emp_engineer: AI_EMPLOYEE_SEEDS[1].duties,
   emp_professor: AI_EMPLOYEE_SEEDS[2].duties,
+};
+
+/**
+ * 실사풍 초상 에셋 슬롯.
+ *
+ * SVG 스프라이트는 오피스 안을 돌아다니는 작은 캐릭터에 적합하지만, 언리얼 엔진5 수준의
+ * 실사 질감은 벡터로 만들 수 없다. 그래서 카드·패널처럼 크게 보이는 자리는 이미지로
+ * 교체할 수 있게 슬롯만 열어 둔다.
+ *
+ * 사용법: 아래 경로에 PNG(권장 768×1024, 배경 투명)를 넣으면 자동으로 대체된다.
+ * 파일이 없으면 SVG 스프라이트로 조용히 되돌아간다 (깨진 이미지 아이콘이 뜨지 않는다).
+ */
+export const PORTRAITS: Record<AiEmployeeId, string> = {
+  emp_admin: '/portraits/elena.png',
+  emp_engineer: '/portraits/kyle.png',
+  emp_professor: '/portraits/olivia.png',
 };
 
 /** 회사 창립 기본값 */

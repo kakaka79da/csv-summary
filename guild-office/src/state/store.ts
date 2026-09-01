@@ -292,7 +292,13 @@ export const useWorld = create<Store>()(
           employeeOrder: AI_EMPLOYEE_SEEDS.map((x) => x.id),
           chats,
           tutorial: { ...s.tutorial, summoned: true },
-          audit: audit(s.audit, s.company?.ceoName ?? '-', 'AI 직원 영입', 'AI 3명', '세라 / 루온 / 미르'),
+          audit: audit(
+            s.audit,
+            s.company?.ceoName ?? '-',
+            'AI 직원 영입',
+            `AI ${AI_EMPLOYEE_SEEDS.length}명`,
+            AI_EMPLOYEE_SEEDS.map((x) => x.name).join(' / '),
+          ),
         });
       },
 

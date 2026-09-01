@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { DUTIES, GREETINGS, type AiEmployeeId } from '@/data/seed';
 import ApiWizard from '@/components/onboarding/ApiWizard';
-import CharacterSprite from '@/components/office/CharacterSprite';
+import CharacterPortrait from '@/components/office/CharacterPortrait';
 import { Badge, Button, Field, Notice, SectionTitle, Select, TextArea } from '@/components/ui/primitives';
 import { money } from '@/lib/format';
 import type { Employee } from '@/types';
@@ -65,14 +65,7 @@ export default function InterviewFlow() {
       <motion.div key={employee.id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="panel p-5">
         {/* 1. 이름 확인 & 역할 설명 */}
         <div className="flex gap-4">
-          <svg viewBox="0 0 24 28" className="h-24 w-20 shrink-0">
-            <CharacterSprite
-              palette={employee.palette}
-              sigil={employee.sigil}
-              state="idle"
-              jobClass={employee.jobClass}
-            />
-          </svg>
+          <CharacterPortrait employee={employee} className="h-28 w-24 shrink-0" />
           <div className="min-w-0 flex-1">
             <h1 className="rune-title text-2xl">{employee.name}</h1>
             <p className="text-sm text-stone-200">{employee.title}</p>

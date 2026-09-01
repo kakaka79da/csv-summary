@@ -8,7 +8,7 @@ import { useWorld } from '@/state/store';
 import { AGENT_STATE_LABEL, DIFFICULTY_LABEL, clock, duration, money } from '@/lib/format';
 import { roomById } from '@/data/seed';
 import ApiWizard from '@/components/onboarding/ApiWizard';
-import CharacterSprite from '@/components/office/CharacterSprite';
+import CharacterPortrait from '@/components/office/CharacterPortrait';
 import {
   Badge,
   Button,
@@ -64,14 +64,7 @@ export default function EmployeePanel({ employeeId }: { employeeId: string }) {
     <div className="panel flex h-full flex-col">
       {/* 헤더 */}
       <div className="flex items-start gap-3 border-b border-stone-700/70 p-4">
-        <svg viewBox="0 0 24 28" className="h-16 w-14 shrink-0">
-          <CharacterSprite
-            palette={employee.palette}
-            sigil={employee.sigil}
-            state={employee.state}
-            jobClass={employee.jobClass}
-          />
-        </svg>
+        <CharacterPortrait employee={employee} state={employee.state} className="h-20 w-16 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <h2 className="rune-title text-lg">{employee.name}</h2>

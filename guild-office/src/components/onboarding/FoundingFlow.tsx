@@ -8,13 +8,14 @@ import { useWorld } from '@/state/store';
 import { AI_EMPLOYEE_SEEDS, COMPANY_DEFAULTS, DUTIES, ROOMS } from '@/data/seed';
 import { Button, Field, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
 import CharacterSprite from '@/components/office/CharacterSprite';
+import CharacterPortrait from '@/components/office/CharacterPortrait';
 import type { AppearanceId, Company } from '@/types';
 
 const APPEARANCES: Array<{ id: AppearanceId; label: string; desc: string; palette: { robe: string; trim: string; aura: string } }> = [
-  { id: 'sovereign', label: '군주', desc: '중후한 정장 망토', palette: { robe: '#8a2f3f', trim: '#d9a441', aura: '#f0cd85' } },
-  { id: 'warden', label: '수호자', desc: '단단한 갑주', palette: { robe: '#2f4a6b', trim: '#c9d3e0', aura: '#8fc4f0' } },
-  { id: 'seer', label: '예언자', desc: '흐르는 장의', palette: { robe: '#4a3a6b', trim: '#c7b3f0', aura: '#a99cf0' } },
-  { id: 'artificer', label: '장인', desc: '작업복과 도구띠', palette: { robe: '#3f5a3a', trim: '#d9c184', aura: '#8fe0bb' } },
+  { id: 'sovereign', label: '군주', desc: '네이비 예장 · 금장 자수', palette: { robe: '#252a4d', trim: '#c9a24a', aura: '#f0cd85' } },
+  { id: 'warden', label: '수호자', desc: '강청 예장 · 은장 자수', palette: { robe: '#1f3348', trim: '#c2ccd8', aura: '#8fc4f0' } },
+  { id: 'seer', label: '예언자', desc: '자주 예장 · 자수정 장식', palette: { robe: '#3a2a52', trim: '#cbb2ea', aura: '#a99cf0' } },
+  { id: 'artificer', label: '장인', desc: '심록 예장 · 황동 장식', palette: { robe: '#24402f', trim: '#cbb27a', aura: '#8fe0bb' } },
 ];
 
 export default function FoundingFlow() {
@@ -191,9 +192,7 @@ function SummonScene() {
                 transition={{ type: 'spring', stiffness: 200, damping: 20 }}
                 className="panel p-4 text-center"
               >
-                <svg viewBox="0 0 24 28" className="mx-auto h-24 w-20">
-                  <CharacterSprite palette={spec.palette} sigil={spec.sigil} state="idle" jobClass={spec.jobClass} />
-                </svg>
+                <CharacterPortrait employee={spec} className="mx-auto h-32 w-24" />
                 <div className="mt-2 font-display text-lg text-gold">{spec.name}</div>
                 <div className="text-xs text-stone-300">{spec.title}</div>
                 <div className="text-[11px] text-stone-500">{spec.jobLabel}</div>

@@ -37,10 +37,10 @@ const MARGIN = 3;
 const CEO_SPOT = { x: 7.4, y: 4.2 };
 
 const CEO_PALETTE: Record<Company['ceoAppearance'], { robe: string; trim: string; aura: string }> = {
-  sovereign: { robe: '#8a2f3f', trim: '#d9a441', aura: '#f0cd85' },
-  warden: { robe: '#2f4a6b', trim: '#c9d3e0', aura: '#8fc4f0' },
-  seer: { robe: '#4a3a6b', trim: '#c7b3f0', aura: '#a99cf0' },
-  artificer: { robe: '#3f5a3a', trim: '#d9c184', aura: '#8fe0bb' },
+  sovereign: { robe: '#252a4d', trim: '#c9a24a', aura: '#f0cd85' },
+  warden: { robe: '#1f3348', trim: '#c2ccd8', aura: '#8fc4f0' },
+  seer: { robe: '#3a2a52', trim: '#cbb2ea', aura: '#a99cf0' },
+  artificer: { robe: '#24402f', trim: '#cbb27a', aura: '#8fe0bb' },
 };
 
 /** 방마다 데크 위에 얹는 옅은 색조 */
