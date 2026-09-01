@@ -4,11 +4,11 @@
  */
 import { useState } from 'react';
 import { useWorld } from '@/state/store';
-import { money } from '@/lib/format';
+import { clock, money } from '@/lib/format';
 import { downloadCsv } from '@/lib/csv';
 import { EMPLOYEE_APPEARANCES, PLATFORM_MAKER } from '@/data/seed';
-import { Badge, Button, Field, Notice, SectionTitle, Select, TextInput } from '@/components/ui/primitives';
-import type { HumanStaffRecord, WorkMode } from '@/types';
+import { Badge, Button, Field, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
+import type { Company, HumanStaffRecord, WorkMode } from '@/types';
 
 const WORK_MODE_LABEL: Record<WorkMode, string> = { office: '출근', remote: '재택', not_started: '미출근' };
 
@@ -360,9 +360,8 @@ export function SettingsPanel() {
         <Row k="월간 AI 예산" v={money(company.monthlyBudgetUsd, company.currency)} />
       </div>
 
+      {session?.role === 'ceo' ? <AdminMessageThread company={company} /> : null}
       {session?.role === 'ceo' ? <CompanyDeletionRequest /> : null}
-      {session?.role === 'platform_admin' ? <PlatformMakerSetting /> : null}
-
       <div className="rounded-xl border border-ember/40 bg-ember/5 p-4">
         <SectionTitle>보안 — 이 프로토타입의 한계</SectionTitle>
         <ul className="list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-stone-300">
@@ -408,7 +407,7 @@ export function SettingsPanel() {
  * 이건 이 소프트웨어 자체를 만든 바깥의 실제 주체 표기이며, 로그인 화면과
  * 이스터에그 진입점에 함께 쓰인다.
  */
-function PlatformMakerSetting() {
+export function PlatformMakerSetting() {
   const current = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
   const companyName = useWorld((s) => s.company?.name);
   const setName = useWorld((s) => s.setPlatformMakerName);
@@ -443,6 +442,56 @@ function PlatformMakerSetting() {
       </div>
       {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
       <p className="mt-1 text-[11px] text-stone-500">현재: {current}</p>
+    </div>
+  );
+}
+
+/**
+ * 대표가 플랫폼 관리자에게 건의·문의를 보내고 답장을 받는 창.
+ * threadKey 는 회사 코드를 쓴다 — 회사가 있어야만 보이는 창이므로 항상 값이 있다.
+ */
+function AdminMessageThread({ company }: { company: Company }) {
+  const messages = useWorld((s) => s.platformMessages);
+  const send = useWorld((s) => s.sendPlatformMessage);
+  const [draft, setDraft] = useState('');
+  const thread = messages.filter((m) => m.threadKey === company.code);
+
+  return (
+    <div className="rounded-xl border border-arcane/40 bg-arcane/5 p-4">
+      <SectionTitle>플랫폼 관리자에게 문의</SectionTitle>
+      <p className="mb-2 text-[11px] leading-relaxed text-stone-400">
+        건의사항이나 문의를 보내면 플랫폼 관리자가 확인 후 답장합니다.
+      </p>
+      {thread.length > 0 ? (
+        <div className="mb-2 max-h-48 space-y-1.5 overflow-y-auto scroll-thin text-[11px]">
+          {thread.map((m) => (
+            <div key={m.id} className={`rounded-lg px-2.5 py-1.5 ${m.from === 'admin' ? 'bg-arcane/10' : 'bg-stone-800/60'}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className={m.from === 'admin' ? 'text-arcane-soft' : 'text-gold'}>
+                  {m.from === 'admin' ? '관리자' : '나'}
+                </span>
+                <span className="text-stone-600">{clock(m.ts)}</span>
+              </div>
+              <p className="mt-0.5 text-stone-200">{m.text}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mb-2 text-[11px] text-stone-600">아직 보낸 메시지가 없습니다.</p>
+      )}
+      <TextArea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="문의 내용을 입력하세요…" />
+      <div className="mt-1.5 flex justify-end">
+        <Button
+          size="sm"
+          disabled={!draft.trim()}
+          onClick={() => {
+            send({ threadKey: company.code, companyName: company.name, text: draft });
+            setDraft('');
+          }}
+        >
+          보내기
+        </Button>
+      </div>
     </div>
   );
 }

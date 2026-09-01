@@ -22,6 +22,13 @@ import type { WorkState } from '@/state/agentMachine';
 
 export const EASTER_EGG_CODE = 'mkang428428';
 
+/**
+ * 플랫폼 관리자 로그인 코드. 같은 "mkang" 제작자 표기를 눌러 입력하지만,
+ * 이스터에그 코드와는 다른 문자열이라 서로 구분된다 — 대표/사원 화면에 노출되지
+ * 않는 숨겨진 진입점으로 관리자 모드에 들어간다.
+ */
+export const ADMIN_UNLOCK_CODE = 'mkang428428##';
+
 /* ────────────────────────────── 대본 형식 ────────────────────────────── */
 
 type Settle =

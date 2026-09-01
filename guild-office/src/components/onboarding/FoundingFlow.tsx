@@ -9,7 +9,9 @@ import { AI_EMPLOYEE_SEEDS, COMPANY_DEFAULTS, DUTIES, ROOMS } from '@/data/seed'
 import { Button, Field, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
 import CharacterSprite from '@/components/office/CharacterSprite';
 import CharacterPortrait from '@/components/office/CharacterPortrait';
-import type { AppearanceId, CeoGender, Company } from '@/types';
+import type { AppearanceId, CeoGender, Company, CompanyApplication } from '@/types';
+
+const STATUS_LABEL = { pending: '심사 중', approved: '승인됨', rejected: '거절됨' } as const;
 
 const APPEARANCES: Array<{ id: AppearanceId; label: string; desc: string; palette: { robe: string; trim: string; aura: string } }> = [
   { id: 'sovereign', label: '군주', desc: '네이비 예장 · 금장 자수', palette: { robe: '#252a4d', trim: '#c9a24a', aura: '#f0cd85' } },
@@ -28,9 +30,55 @@ export default function FoundingFlow() {
 /* ─────────────────────────── 2단계: 회사 창립 ─────────────────────────── */
 
 function CompanyForm() {
-  const foundCompany = useWorld((s) => s.foundCompany);
+  const session = useWorld((s) => s.session);
+  const companyApplications = useWorld((s) => s.companyApplications);
+
+  const pendingApp = session?.companyApplicationId ? companyApplications[session.companyApplicationId] : null;
+  if (pendingApp && pendingApp.status !== 'approved') return <ApplicationStatusView application={pendingApp} />;
+
+  return <CompanyApplicationForm />;
+}
+
+function ApplicationStatusView({ application }: { application: CompanyApplication }) {
+  const clearApplication = useWorld((s) => s.clearCompanyApplication);
+  const logout = useWorld((s) => s.logout);
+  const rejected = application.status === 'rejected';
+
+  return (
+    <Wizard step={2} total={6} title="회사 창립 신청" flavor="플랫폼 관리자 심사">
+      <div className="grid place-items-center gap-3 py-6 text-center">
+        <div className="text-4xl">{rejected ? '✕' : '⏳'}</div>
+        <h2 className="text-lg text-stone-100">
+          {application.founding.name} · {STATUS_LABEL[application.status]}
+        </h2>
+        <p className="max-w-md text-sm text-stone-400">
+          {rejected
+            ? '신청이 거절되었습니다. 아래에서 다시 신청할 수 있습니다.'
+            : '플랫폼 관리자가 신청 내용(회사 정보·사업자 서류)을 확인하고 있습니다. 승인되면 이 화면이 자동으로 다음 단계로 넘어갑니다.'}
+        </p>
+        {application.note ? (
+          <div className="w-full max-w-md">
+            <Notice tone={rejected ? 'warn' : 'info'}>관리자 메모: {application.note}</Notice>
+          </div>
+        ) : null}
+        <div className="mt-2 flex gap-2">
+          {rejected ? <Button onClick={clearApplication}>다시 신청하기</Button> : null}
+          <Button variant="ghost" onClick={logout}>
+            로그아웃
+          </Button>
+        </div>
+      </div>
+    </Wizard>
+  );
+}
+
+function CompanyApplicationForm() {
+  const submitApplication = useWorld((s) => s.submitCompanyApplication);
   const session = useWorld((s) => s.session);
   const [form, setForm] = useState<Omit<Company, 'foundedAt' | 'code'>>({ ...COMPANY_DEFAULTS });
+  const [accountId, setAccountId] = useState('');
+  const [documentRef, setDocumentRef] = useState<{ fileName: string; sizeKb: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const set = <K extends keyof Omit<Company, 'foundedAt' | 'code'>>(k: K, v: Omit<Company, 'foundedAt' | 'code'>[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -41,16 +89,28 @@ function CompanyForm() {
     form.ceoCharacterName.trim() &&
     form.ceoPhone.trim() &&
     form.businessRegNo.trim() &&
-    form.ceoEmail.trim();
+    form.ceoEmail.trim() &&
+    accountId.trim();
+
+  const submit = () => {
+    const r = submitApplication({ founding: form, accountId, documentRef });
+    if (!r.ok) setError(r.error ?? '신청할 수 없습니다.');
+  };
 
   return (
-    <Wizard step={2} total={6} title="회사 창립" flavor="길드 창설 문서 작성">
+    <Wizard step={2} total={6} title="회사 창립 신청" flavor="길드 창설 문서 작성 · 관리자 승인 필요">
       <div className="mb-4 flex items-center justify-between rounded-lg border border-stone-700 bg-stone-950/50 px-3 py-2 text-xs">
         <span className="text-stone-400">
           로그인 계정 <span className="text-stone-200">{session?.accountName}</span>
           <span className="ml-1 text-stone-600">({session?.role === 'ceo' ? '대표' : '관리자'})</span>
         </span>
         <span className="text-stone-500">지금 입력하는 대표자명은 회사 소속 정보입니다</span>
+      </div>
+      <div className="mb-4">
+        <Notice>
+          실제 비밀번호는 입력받지 않습니다. 위 "가입 아이디"는 이 데모 안에서 신청 내역을 다시 찾기 위한
+          식별자일 뿐입니다.
+        </Notice>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -95,10 +155,37 @@ function CompanyForm() {
         <Field label="대표 이메일" hint="사업자 개업 시 필수 입력">
           <TextInput type="email" value={form.ceoEmail} onChange={(e) => set('ceoEmail', e.target.value)} />
         </Field>
+        <Field label="가입 아이디" hint="데모용 조회 식별자입니다 — 실제 비밀번호는 입력받지 않습니다">
+          <TextInput value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="예: creamcart-ceo" />
+        </Field>
         <div className="sm:col-span-2">
           <Field label="회사의 첫 번째 목표">
             <TextArea rows={2} value={form.firstGoal} onChange={(e) => set('firstGoal', e.target.value)} />
           </Field>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <SectionTitle>사업자 등록증 사본 (선택)</SectionTitle>
+        <input
+          type="file"
+          accept="image/*,.pdf"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            setDocumentRef(file ? { fileName: file.name, sizeKb: Math.round(file.size / 1024) } : null);
+          }}
+          className="block w-full text-xs text-stone-400 file:mr-3 file:rounded-lg file:border file:border-stone-700 file:bg-stone-800 file:px-3 file:py-1.5 file:text-stone-200"
+        />
+        {documentRef ? (
+          <p className="mt-1 text-[11px] text-stone-500">
+            선택됨: {documentRef.fileName} ({documentRef.sizeKb}KB)
+          </p>
+        ) : null}
+        <div className="mt-2">
+          <Notice>
+            이 데모는 파일 이름·용량만 신청서에 기록합니다. 실제 파일 업로드·저장(Google Drive 연동 등)은
+            백엔드 구현 항목입니다.
+          </Notice>
         </div>
       </div>
 
@@ -142,9 +229,18 @@ function CompanyForm() {
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end">
-        <Button disabled={!valid} onClick={() => foundCompany(form)}>
-          창립 문서 봉인 · 회사 설립
+      {error ? (
+        <div className="mt-4">
+          <Notice tone="warn">{error}</Notice>
+        </div>
+      ) : null}
+
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <p className="text-[11px] text-stone-600">
+          제출하면 바로 회사가 만들어지지 않습니다 — 플랫폼 관리자가 신청 내용을 확인한 뒤 승인해야 합니다.
+        </p>
+        <Button disabled={!valid} onClick={submit}>
+          창립 신청서 제출
         </Button>
       </div>
     </Wizard>

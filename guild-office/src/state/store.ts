@@ -27,6 +27,7 @@ import { clamp, nid } from '@/lib/format';
 import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
 import { seedMemory, type MemoryAgreement } from '@/data/memorySeed';
 import {
+  ADMIN_UNLOCK_CODE,
   EASTER_EGG_CODE,
   advanceEasterEgg,
   initialEasterEgg,
@@ -46,9 +47,11 @@ import {
 import type {
   Approval,
   ApprovalStatus,
+  ArchivedCompany,
   Artifact,
   AuditEntry,
   Company,
+  CompanyApplication,
   Difficulty,
   Employee,
   EmployeeAppearanceId,
@@ -60,6 +63,7 @@ import type {
   MemoryKind,
   Mission,
   Phase,
+  PlatformMessage,
   ProviderId,
   Role,
   RoomId,
@@ -91,6 +95,21 @@ export interface WorldState {
    * 참여하지 않고, 오피스 화면에는 근태(workMode)에 따라 장식용으로만 표시된다.
    */
   humanStaff: Record<string, HumanStaffRecord>;
+
+  /**
+   * 회사 창립 신청. 플랫폼 관리자가 승인해야 실제 Company 가 만들어진다.
+   * company 와 달리 회사가 없어도(또는 삭제된 뒤에도) 계속 남아 있는 전역 기록이다.
+   */
+  companyApplications: Record<string, CompanyApplication>;
+
+  /** 대표 ↔ 플랫폼 관리자 메시지. 회사(또는 신청서) 단위로 스레드가 묶인다. */
+  platformMessages: PlatformMessage[];
+
+  /**
+   * 삭제 승인된 회사의 요약 기록. "회사 생성 시 기존 데이터는 따로 저장" 요청에 따라,
+   * 회사를 지우기 전에 여기로 옮겨 관리자 페이지에서 계속 조회할 수 있게 한다.
+   */
+  archivedCompanies: ArchivedCompany[];
 
   /**
    * 직원별 개인 기억. 성품·업무 원칙·합의사항·교훈을 담으며, 모델(binding)과는
@@ -182,6 +201,33 @@ export interface WorldActions {
    */
   requestCompanyDeletion: (reason: string) => { ok: boolean; error?: string };
 
+  /* ── 회사 창립 신청 (플랫폼 관리자 승인) ─────────────────────────────── */
+
+  /**
+   * 대표가 회사 창립 신청서를 제출한다. 바로 회사가 만들어지지 않고, 플랫폼
+   * 관리자가 승인해야 foundCompany 가 호출된다. 같은 accountId 로 대기 중인
+   * 신청이 있으면 거절된다.
+   */
+  submitCompanyApplication: (input: {
+    founding: Omit<Company, 'foundedAt' | 'code'>;
+    accountId: string;
+    documentRef: { fileName: string; sizeKb: number } | null;
+  }) => { ok: boolean; error?: string; applicationId?: string };
+
+  /** 데모용 계정 ID로 이미 제출한 신청서를 찾는다 (대기/승인/거절 상태 확인용). */
+  lookupCompanyApplicationByAccountId: (accountId: string) => CompanyApplication | null;
+
+  /** 대표가 신청 화면으로 돌아가 새로 제출할 수 있도록 세션의 신청서 연결을 해제한다. */
+  clearCompanyApplication: () => void;
+
+  /** 플랫폼 관리자가 회사 창립 신청을 승인·거절한다. 승인 시 실제로 회사를 만든다. */
+  decideCompanyApplication: (id: string, decision: 'approved' | 'rejected', note?: string) => void;
+
+  /* ── 대표 ↔ 플랫폼 관리자 메시지 ─────────────────────────────────────── */
+
+  /** 대표 또는 관리자가 스레드에 메시지를 보낸다. */
+  sendPlatformMessage: (input: { threadKey: string; companyName: string; text: string }) => { ok: boolean; error?: string };
+
   /** 회사 코드는 대표가 입력하지 않는다 — 창립 시 자동으로 발급된다. */
   foundCompany: (input: Omit<Company, 'foundedAt' | 'code'>) => void;
   buildOffice: () => void;
@@ -270,6 +316,9 @@ const initialState: WorldState = {
   employees: {},
   employeeOrder: [],
   humanStaff: {},
+  companyApplications: {},
+  platformMessages: [],
+  archivedCompanies: [],
   memories: {},
   missions: {},
   missionOrder: [],
@@ -371,9 +420,12 @@ export const useWorld = create<Store>()(
             : role === 'platform_admin'
               ? (s.platformMakerName || PLATFORM_MAKER)
               : '인간 직원 (데모)';
+        // 회사는 있지만 아직 사무실/AI 직원이 없는 경우(관리자 승인을 막 받은 대표가
+        // 다시 로그인하는 경우)는 처음부터가 아니라 사무실 건설 단계부터 이어서 보여준다.
+        const phase: Phase = !s.company ? 'founding' : Object.keys(s.employees).length < 3 ? 'office_build' : 'live';
         set({
           session: { role, accountName, demo: true },
-          phase: s.company ? 'live' : 'founding',
+          phase,
           audit: audit(s.audit, accountName, '데모 로그인', role, '실제 인증 아님 (백엔드 구현 항목)'),
         });
       },
@@ -399,6 +451,113 @@ export const useWorld = create<Store>()(
           audit: audit(s.audit, s.session.accountName, '플랫폼 제작자 표기 변경', PLATFORM_MAKER, `→ "${trimmed}"`),
           ui: { ...s.ui, toast: `플랫폼 제작자 표기를 "${trimmed}"(으)로 바꿨습니다.` },
         });
+        return { ok: true };
+      },
+
+      /* ── 회사 창립 신청 (플랫폼 관리자 승인) ─────────────────────────── */
+      submitCompanyApplication: (input) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표 계정으로만 신청할 수 있습니다.' };
+        const accountId = input.accountId.trim();
+        if (!accountId) return { ok: false, error: '가입 아이디를 입력하세요.' };
+        if (!input.founding.name.trim()) return { ok: false, error: '회사명을 입력하세요.' };
+        const dup = Object.values(s.companyApplications).find(
+          (a) => a.accountId.toLowerCase() === accountId.toLowerCase() && a.status === 'pending',
+        );
+        if (dup) return { ok: false, error: '이미 처리 대기 중인 신청이 있습니다.' };
+
+        const id = nid('capp');
+        const application: CompanyApplication = {
+          id,
+          status: 'pending',
+          founding: input.founding,
+          accountId,
+          documentRef: input.documentRef,
+          submittedAt: Date.now(),
+          decidedAt: null,
+          decidedBy: null,
+          note: null,
+        };
+        set({
+          companyApplications: { ...s.companyApplications, [id]: application },
+          session: { ...s.session, companyApplicationId: id },
+          audit: audit(
+            s.audit,
+            input.founding.ceoName,
+            '회사 창립 신청',
+            input.founding.name,
+            `계정 ${accountId} · 관리자 승인 대기`,
+          ),
+          ui: { ...s.ui, toast: '회사 창립 신청을 접수했습니다. 플랫폼 관리자의 승인을 기다려 주세요.' },
+        });
+        return { ok: true, applicationId: id };
+      },
+
+      lookupCompanyApplicationByAccountId: (accountId) => {
+        const trimmed = accountId.trim().toLowerCase();
+        return Object.values(get().companyApplications).find((a) => a.accountId.toLowerCase() === trimmed) ?? null;
+      },
+
+      clearCompanyApplication: () => {
+        const s = get();
+        if (!s.session) return;
+        set({ session: { ...s.session, companyApplicationId: null } });
+      },
+
+      decideCompanyApplication: (id, decision, note) => {
+        const s = get();
+        if (s.session?.role !== 'platform_admin') return;
+        const app = s.companyApplications[id];
+        if (!app || app.status !== 'pending') return;
+        const decidedBy = s.session.accountName;
+
+        if (decision === 'rejected') {
+          set({
+            companyApplications: {
+              ...s.companyApplications,
+              [id]: { ...app, status: 'rejected', decidedAt: Date.now(), decidedBy, note: note?.trim() || null },
+            },
+            audit: audit(s.audit, decidedBy, '회사 창립 신청 거절', app.founding.name, note?.trim() || ''),
+            ui: { ...s.ui, toast: `"${app.founding.name}" 신청을 거절했습니다.` },
+          });
+          return;
+        }
+
+        // 승인 — 실제 회사를 만든다. foundCompany 를 그대로 부르면 지금 로그인한
+        // 관리자 세션의 이름이 대표 이름으로 덮어써지므로, 여기서는 직접 만들고
+        // 세션은 건드리지 않는다. (사무실 건설·AI 소환은 대표가 다시 로그인하면
+        // 이어서 진행한다 — loginDemo 의 단계 복원 로직 참고.)
+        const code = generateCompanyCode(app.founding.name);
+        const company: Company = { ...app.founding, code, foundedAt: Date.now() };
+        set({
+          company,
+          companyApplications: {
+            ...s.companyApplications,
+            [id]: { ...app, status: 'approved', decidedAt: Date.now(), decidedBy, note: note?.trim() || null },
+          },
+          audit: audit(s.audit, decidedBy, '회사 창립 신청 승인', company.name, `사원 가입 코드 ${code}`),
+          ui: { ...s.ui, toast: `"${company.name}" 회사 창립을 승인했습니다.` },
+        });
+      },
+
+      /* ── 대표 ↔ 플랫폼 관리자 메시지 ─────────────────────────────────── */
+      sendPlatformMessage: (input) => {
+        const s = get();
+        if (!s.session || (s.session.role !== 'ceo' && s.session.role !== 'platform_admin')) {
+          return { ok: false, error: '대표 또는 관리자만 메시지를 보낼 수 있습니다.' };
+        }
+        const text = input.text.trim();
+        if (!text) return { ok: false, error: '내용을 입력하세요.' };
+        const msg: PlatformMessage = {
+          id: nid('pmsg'),
+          threadKey: input.threadKey,
+          companyName: input.companyName,
+          from: s.session.role === 'platform_admin' ? 'admin' : 'ceo',
+          authorName: s.session.accountName,
+          text,
+          ts: Date.now(),
+        };
+        set({ platformMessages: [...s.platformMessages, msg] });
         return { ok: true };
       },
 
@@ -814,10 +973,42 @@ export const useWorld = create<Store>()(
         if (approval.kind === 'company_deletion') {
           if (positive) {
             const companyName = s.company?.name ?? '(알 수 없음)';
+            // "회사 생성 시 기존 데이터는 따로 저장" — 지우기 전에 요약을 아카이브에 남긴다.
+            const archivedCompanies: ArchivedCompany[] = s.company
+              ? [
+                  ...s.archivedCompanies,
+                  {
+                    id: nid('arcv'),
+                    company: s.company,
+                    archivedAt: Date.now(),
+                    reason: note?.trim() || approval.reason || '대표 요청 · 플랫폼 관리자 승인',
+                    employeeCount: Object.keys(s.employees).length,
+                    humanStaffCount: Object.values(s.humanStaff).filter((r) => r.status === 'approved').length,
+                    missionCount: s.missionOrder.length,
+                    totalSpendUsd: s.ledger.reduce((sum, e) => sum + e.costUsd, 0),
+                  },
+                ]
+              : s.archivedCompanies;
+            // 회사 범위 데이터만 초기화한다 — 관리자 세션과 플랫폼 데이터(신청서·메시지·
+            // 아카이브)는 그대로 둔다. 예전에는 관리자 세션까지 로그아웃시켰지만, 이제는
+            // 관리자 전용 대시보드가 company 유무와 무관하게 동작하므로 그럴 필요가 없다.
             set({
-              ...initialState,
-              platformMakerName: s.platformMakerName,
-              audit: audit(s.audit, s.session?.accountName ?? '-', '회사 삭제 승인', companyName, '데이터 전체 삭제됨'),
+              company: null,
+              employees: {},
+              employeeOrder: [],
+              humanStaff: {},
+              memories: {},
+              missions: {},
+              missionOrder: [],
+              artifacts: {},
+              approvals: [],
+              ledger: [],
+              chats: {},
+              tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
+              easterEgg: initialEasterEgg,
+              archivedCompanies,
+              audit: audit(s.audit, s.session?.accountName ?? '-', '회사 삭제 승인', companyName, '데이터 삭제 · 요약은 아카이브에 보관'),
+              ui: { ...s.ui, toast: `"${companyName}" 회사를 삭제했습니다. 요약 기록은 아카이브에 남아 있습니다.` },
             });
           } else {
             set({
@@ -1239,7 +1430,16 @@ export const useWorld = create<Store>()(
 
       /* ── 이스터에그 ───────────────────────────────────────────────── */
       tryEasterEggCode: (code) => {
-        if (code.trim() !== EASTER_EGG_CODE) return false;
+        const trimmed = code.trim();
+
+        // 같은 "mkang" 표기의 숨겨진 두 번째 코드 — 플랫폼 관리자 로그인 진입점이다.
+        // 로그인 화면에는 관리자 버튼을 아예 노출하지 않고, 이 코드로만 들어간다.
+        if (trimmed === ADMIN_UNLOCK_CODE) {
+          if (!get().session) get().loginDemo('platform_admin');
+          return true;
+        }
+
+        if (trimmed !== EASTER_EGG_CODE) return false;
 
         if (!get().session) get().loginDemo('ceo');
         if (!get().company) {
@@ -1365,6 +1565,9 @@ export const useWorld = create<Store>()(
         employees: s.employees,
         employeeOrder: s.employeeOrder,
         humanStaff: s.humanStaff,
+        companyApplications: s.companyApplications,
+        platformMessages: s.platformMessages,
+        archivedCompanies: s.archivedCompanies,
         memories: s.memories,
         missions: s.missions,
         missionOrder: s.missionOrder,

@@ -21,13 +21,6 @@ const ROLES = [
     sigil: '♛',
   },
   {
-    role: 'platform_admin' as const,
-    title: '플랫폼 관리자',
-    flavor: '세계의 관리자',
-    desc: '', // 아래 렌더링에서 현재 제작자 표기로 채운다
-    sigil: '⚙',
-  },
-  {
     role: 'human_staff' as const,
     title: '인간 직원',
     flavor: '길드원',
@@ -95,11 +88,7 @@ export default function LoginScreen() {
                       <span className="font-medium text-stone-100">{r.title}</span>
                       <span className="text-[11px] text-stone-500">· {r.flavor}</span>
                     </span>
-                    <span className="mt-0.5 block text-xs text-stone-400">
-                      {r.role === 'platform_admin'
-                        ? `플랫폼 제작자(${makerName}) 계정. 회사 운영에는 관여하지 않는다`
-                        : r.desc}
-                    </span>
+                    <span className="mt-0.5 block text-xs text-stone-400">{r.desc}</span>
                   </span>
                   <span className="shrink-0 text-xs text-stone-500">
                     {locked ? '창립 후 개방' : '데모 로그인 →'}

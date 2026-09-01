@@ -19,6 +19,8 @@ export interface Session {
   demo: true;
   /** role 이 'human_staff' 일 때, humanStaff 명부의 어느 레코드인지. */
   humanStaffId?: string | null;
+  /** role 이 'ceo' 이고 아직 회사가 승인되지 않았을 때, 제출한 신청서 id. */
+  companyApplicationId?: string | null;
 }
 
 /* ──────────────────────────────── 회사 ──────────────────────────────── */
@@ -239,6 +241,69 @@ export interface HumanStaffRecord {
   requestedAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
+}
+
+/* ─────────────────────── 회사 창립 신청 (관리자 승인) ──────────────────── */
+
+export type CompanyApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * 대표는 회사를 바로 만들지 않고 먼저 이 신청서를 제출한다. 플랫폼 관리자가
+ * 승인해야 실제 Company 가 만들어진다 — "회사 신청 승인"은 관리자 페이지의
+ * 핵심 업무 중 하나다.
+ *
+ * ⚠️ 보안: accountId 는 데모에서 회사를 구분·조회하기 위한 식별자일 뿐 실제
+ * 비밀번호가 아니다. 이 프로토타입은 어떤 비밀번호도 입력받거나 저장하지
+ * 않는다 (docs/SECURITY.md). documentRef 도 실제 업로드가 아니라 파일
+ * 메타데이터만 기록한다 — 실제 저장(Google Drive 등 연동)은 백엔드 구현 항목이다.
+ */
+export interface CompanyApplication {
+  id: string;
+  status: CompanyApplicationStatus;
+  /** 승인되면 그대로 foundCompany 에 전달되는 창립 정보 */
+  founding: Omit<Company, 'foundedAt' | 'code'>;
+  /** 데모용 로그인 식별자. 실제 비밀번호는 절대 다루지 않는다. */
+  accountId: string;
+  documentRef: { fileName: string; sizeKb: number } | null;
+  submittedAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+  note: string | null;
+}
+
+/* ─────────────────────── 대표 ↔ 관리자 메시지 ─────────────────────────── */
+
+/**
+ * 회사 대표가 플랫폼 관리자에게 보내는 건의·문의와 그 답장.
+ * threadKey 로 회사별 대화를 묶는다 — 회사가 아직 없으면(신청 단계) 신청서
+ * id, 창립된 뒤에는 회사 코드를 쓴다.
+ */
+export interface PlatformMessage {
+  id: string;
+  threadKey: string;
+  companyName: string;
+  from: 'ceo' | 'admin';
+  authorName: string;
+  text: string;
+  ts: number;
+}
+
+/* ─────────────────────────── 아카이브된 회사 ───────────────────────────── */
+
+/**
+ * 회사 삭제가 승인되면 데이터를 지우기 전에 요약을 여기로 옮겨 보관한다 —
+ * "회사 생성 시 기존 데이터는 따로 저장" 요청에 따른 것이다. 새 회사를
+ * 다시 만들어도 이전 기록은 관리자 페이지의 아카이브 목록에 남는다.
+ */
+export interface ArchivedCompany {
+  id: string;
+  company: Company;
+  archivedAt: number;
+  reason: string;
+  employeeCount: number;
+  humanStaffCount: number;
+  missionCount: number;
+  totalSpendUsd: number;
 }
 
 /* ──────────────────────────── 개인 기억 ─────────────────────────────── */

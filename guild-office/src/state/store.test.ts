@@ -433,6 +433,22 @@ describe('우선순위 회의 소집', () => {
   });
 });
 
+describe('숨겨진 관리자 로그인 코드', () => {
+  it('mkang428428## 코드는 세션이 없을 때 플랫폼 관리자로 로그인시킨다', () => {
+    expect(useWorld.getState().session).toBeNull();
+    const ok = useWorld.getState().tryEasterEggCode('mkang428428##');
+    expect(ok).toBe(true);
+    expect(useWorld.getState().session?.role).toBe('platform_admin');
+    expect(useWorld.getState().easterEgg.active).toBe(false);
+  });
+
+  it('이스터에그 코드(mkang428428)는 관리자 코드와 구분되어 여전히 이스터에그만 시작한다', () => {
+    const ok = useWorld.getState().tryEasterEggCode('mkang428428');
+    expect(ok).toBe(true);
+    expect(useWorld.getState().session?.role).toBe('ceo');
+  });
+});
+
 describe('이스터에그 — 탱크형 변형 휠 데모', () => {
   it('틀린 코드는 아무것도 바꾸지 않는다', () => {
     const ok = useWorld.getState().tryEasterEggCode('아무거나');
@@ -762,9 +778,10 @@ describe('회사 삭제 — 플랫폼 관리자 승인 필요', () => {
     expect(useWorld.getState().company).not.toBeNull();
   });
 
-  it('플랫폼 관리자가 승인하면 회사 데이터가 전부 삭제되고 로그아웃된다', () => {
+  it('플랫폼 관리자가 승인하면 회사 데이터가 삭제되고, 요약은 아카이브에 남으며, 관리자는 로그인된 채로 남는다', () => {
     bootstrap();
     connectAll();
+    const companyName = useWorld.getState().company!.name;
     useWorld.getState().requestCompanyDeletion('사업 종료');
     const approvalId = useWorld.getState().approvals.find((a) => a.kind === 'company_deletion')!.id;
 
@@ -775,7 +792,10 @@ describe('회사 삭제 — 플랫폼 관리자 승인 필요', () => {
     const s = useWorld.getState();
     expect(s.company).toBeNull();
     expect(Object.keys(s.employees)).toHaveLength(0);
-    expect(s.session).toBeNull();
+    expect(s.session?.role).toBe('platform_admin');
+    expect(s.archivedCompanies).toHaveLength(1);
+    expect(s.archivedCompanies[0].company.name).toBe(companyName);
+    expect(s.archivedCompanies[0].employeeCount).toBe(3);
   });
 
   it('플랫폼 관리자가 거절하면 회사는 그대로 남는다', () => {
@@ -788,5 +808,135 @@ describe('회사 삭제 — 플랫폼 관리자 승인 필요', () => {
     useWorld.getState().decideApproval(approvalId, 'rejected');
 
     expect(useWorld.getState().approvals.find((a) => a.id === approvalId)?.status).toBe('rejected');
+  });
+});
+
+describe('회사 창립 신청 — 플랫폼 관리자 승인', () => {
+  it('대표가 신청하면 대기 상태로 접수되고 세션에 신청서가 연결된다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    const r = useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: { fileName: 'biz-reg.pdf', sizeKb: 120 },
+    });
+    expect(r.ok).toBe(true);
+    const app = useWorld.getState().companyApplications[r.applicationId!];
+    expect(app.status).toBe('pending');
+    expect(useWorld.getState().session?.companyApplicationId).toBe(r.applicationId);
+    expect(useWorld.getState().company).toBeNull();
+  });
+
+  it('같은 계정 ID로 대기 중인 신청이 있으면 중복 제출을 막는다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: null,
+    });
+    const dup = useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: null,
+    });
+    expect(dup.ok).toBe(false);
+  });
+
+  it('대표 본인은 자신의 신청을 승인할 수 없다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    const r = useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: null,
+    });
+    useWorld.getState().decideCompanyApplication(r.applicationId!, 'approved');
+    expect(useWorld.getState().companyApplications[r.applicationId!].status).toBe('pending');
+    expect(useWorld.getState().company).toBeNull();
+  });
+
+  it('관리자가 승인하면 회사가 만들어지고 관리자 세션은 그대로 유지된다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    const r = useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: null,
+    });
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    const adminName = useWorld.getState().session?.accountName;
+    useWorld.getState().decideCompanyApplication(r.applicationId!, 'approved');
+
+    const s = useWorld.getState();
+    expect(s.company).not.toBeNull();
+    expect(s.company?.code).toBeTruthy();
+    expect(s.companyApplications[r.applicationId!].status).toBe('approved');
+    expect(s.session?.role).toBe('platform_admin');
+    expect(s.session?.accountName).toBe(adminName);
+  });
+
+  it('승인 후 회사는 있지만 AI 직원이 아직 없으므로, 대표가 다시 로그인하면 사무실 건설 단계부터 이어진다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    const r = useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: null,
+    });
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    useWorld.getState().decideCompanyApplication(r.applicationId!, 'approved');
+    useWorld.getState().logout();
+
+    useWorld.getState().loginDemo('ceo');
+    expect(useWorld.getState().phase).toBe('office_build');
+  });
+
+  it('관리자가 거절하면 회사가 만들어지지 않는다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('ceo');
+    const r = useWorld.getState().submitCompanyApplication({
+      founding: { ...COMPANY_DEFAULTS },
+      accountId: 'demo-ceo-1',
+      documentRef: null,
+    });
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    useWorld.getState().decideCompanyApplication(r.applicationId!, 'rejected', '서류 미비');
+
+    const s = useWorld.getState();
+    expect(s.company).toBeNull();
+    expect(s.companyApplications[r.applicationId!].status).toBe('rejected');
+    expect(s.companyApplications[r.applicationId!].note).toBe('서류 미비');
+  });
+});
+
+describe('대표 ↔ 플랫폼 관리자 메시지', () => {
+  it('대표와 관리자는 같은 threadKey 로 메시지를 주고받을 수 있다', () => {
+    bootstrap();
+    const threadKey = useWorld.getState().company!.code;
+    const companyName = useWorld.getState().company!.name;
+
+    const r1 = useWorld.getState().sendPlatformMessage({ threadKey, companyName, text: '정산 문의드립니다.' });
+    expect(r1.ok).toBe(true);
+
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    const r2 = useWorld.getState().sendPlatformMessage({ threadKey, companyName, text: '확인 후 답변드리겠습니다.' });
+    expect(r2.ok).toBe(true);
+
+    const thread = useWorld.getState().platformMessages.filter((m) => m.threadKey === threadKey);
+    expect(thread).toHaveLength(2);
+    expect(thread[0].from).toBe('ceo');
+    expect(thread[1].from).toBe('admin');
+  });
+
+  it('대표·관리자가 아니면 메시지를 보낼 수 없다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().loginDemo('human_staff');
+    const r = useWorld.getState().sendPlatformMessage({ threadKey: 'x', companyName: '-', text: '문의' });
+    expect(r.ok).toBe(false);
   });
 });

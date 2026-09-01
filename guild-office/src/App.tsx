@@ -19,6 +19,7 @@ import ApprovalCenter from '@/components/approvals/ApprovalCenter';
 import CostDashboard from '@/components/cost/CostDashboard';
 import AuditLog from '@/components/audit/AuditLog';
 import { PeoplePanel, SettingsPanel } from '@/components/panels/SidePanels';
+import AdminDashboard from '@/components/admin/AdminDashboard';
 import { Badge, Button, Modal, Notice } from '@/components/ui/primitives';
 import { AGENT_STATE_LABEL, money } from '@/lib/format';
 import type { HumanStaffRecord } from '@/types';
@@ -63,6 +64,12 @@ export default function App() {
 
   const staffRecord = session?.role === 'human_staff' && session.humanStaffId ? humanStaff[session.humanStaffId] : null;
   const pending = Boolean(staffRecord && staffRecord.status !== 'approved');
+
+  // 관리자 모드는 오피스 운영 화면(phase 기반 라우팅)과 완전히 분리된 별도 페이지다 —
+  // 회사가 없어도(삭제된 뒤에도) 정상적으로 열려야 하므로 phase 를 전혀 참조하지 않는다.
+  if (session?.role === 'platform_admin') {
+    return <AdminDashboard />;
+  }
 
   let body: React.ReactNode;
   if (!session) body = <LoginScreen />;
