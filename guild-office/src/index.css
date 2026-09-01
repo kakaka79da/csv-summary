@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 판타지 오피스 기본 톤. 어두운 석조 배경 + 황금 강조. */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-stone-950 text-stone-100 antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 15% -10%, rgba(123, 107, 214, 0.16), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, rgba(217, 164, 65, 0.12), transparent 55%);
+    background-attachment: fixed;
+    font-family: 'Pretendard', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-stone-700/70 bg-stone-900/80 backdrop-blur-sm shadow-rune;
+  }
+  .rune-title {
+    @apply font-display tracking-wide text-gold;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-stone-700;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
