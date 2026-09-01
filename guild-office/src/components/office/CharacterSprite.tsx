@@ -5,7 +5,8 @@
  *  - strategist    엘레나 · 전술 서기관   : 회로 무늬 네이비 수트 + 은빛 스카프 + 이어피스 + 홀로그램 결재판 + 레이스업 부츠
  *  - rune_engineer 카일 · 룬 마법공학자   : 시안 회로 롱코트 + AR 글래스 + 장갑 + 홀로그램 패널
  *  - sage          올리비아 · 공감의 현자 : 샴페인 실크 블라우스 + 블랙 펜슬 스커트 + 금색 펜 + 떠다니는 문서 + 구체형 드론
- *  - sovereign     대표                  : 금장 트림 예복 (창립 시 고른 외형 색을 따른다)
+ *  - sovereign     대표                  : 금장 트림 예복 (창립 시 고른 외형 색을 따른다).
+ *                                          남/여 두 실루엣 중 고를 수 있다 (gender prop).
  *
  * 행동 애니메이션은 employee.state 하나에서만 파생된다. 상태별 소품(홀로그램 키보드,
  * 데이터 큐브, 황금 방어막, 보고용 결과 상자)도 같은 값에서 켜지고 꺼지므로,
@@ -15,13 +16,15 @@
  * 여기 SVG 는 오피스를 돌아다니는 작은 캐릭터와, 이미지가 없을 때의 대체본이다.
  */
 import { motion } from 'framer-motion';
-import type { AgentState, JobClass } from '@/types';
+import type { AgentState, CeoGender, JobClass } from '@/types';
 
 interface Props {
   palette: { robe: string; trim: string; aura: string };
   sigil: string;
   state: AgentState;
   jobClass: JobClass;
+  /** jobClass 가 'sovereign' 일 때만 쓰인다. 기본값은 'male'. */
+  gender?: CeoGender;
 }
 
 const SKIN = '#e8c9a8';
@@ -626,9 +629,76 @@ function SovereignBody({ palette, sigil }: { palette: Props['palette']; sigil: s
   );
 }
 
+/** 여성 대표 실루엣 — 같은 금장 예복 컨셉을 긴 코트드레스 + 흐르는 머리로 표현한다. */
+function SovereignBodyFemale({ palette, sigil }: { palette: Props['palette']; sigil: string }) {
+  const COAT = palette.robe;
+  const GOLD = palette.trim;
+  const LINING = '#e6dcc4';
+
+  return (
+    <g>
+      {/* 발 — 트럼펫 스커트 아래로 살짝 보이는 구두 코 */}
+      <path d="M9.4 25.6 L12 25.6 L12 26.3 L9.1 26.3 Z" fill="#17141c" />
+      <path d="M12.1 25.6 L14.7 25.6 L14.9 26.3 L12.1 26.3 Z" fill="#17141c" />
+
+      {/* 트럼펫 스커트 — 허리에서 발치까지 넓어지는 코트드레스 */}
+      <path d="M9.2 15.6 L14.8 15.6 L17.4 25.2 L6.6 25.2 Z" fill={COAT} />
+      <path d="M9.6 15.6 L11.6 15.6 L10.6 25.2 L7.6 25.2 Z" fill={LINING} opacity="0.55" />
+      <path d="M12.4 15.6 L14.4 15.6 L16.4 25.2 L13.4 25.2 Z" fill={LINING} opacity="0.4" />
+      {/* 자락 금장 자수 */}
+      <g stroke={GOLD} strokeWidth="0.24" fill="none" opacity="0.9">
+        <path d="M7.4 23.4 Q9 24 8.6 25.4" />
+        <path d="M16.6 23.4 Q15 24 15.4 25.4" />
+        <path d="M8.2 19.4 H15.8" opacity="0.6" />
+      </g>
+
+      {/* 허리 라인을 강조하는 코르셋 벨트 + 문장 */}
+      <path d="M9.6 13.8 L14.4 13.8 L14.9 15.8 L9.1 15.8 Z" fill={COAT} />
+      <rect x="9.7" y="14.6" width="4.6" height="0.8" rx="0.18" fill={GOLD} />
+      <circle cx="12" cy="15" r="0.72" fill="#1c1f38" />
+      <text x="12" y="15.35" textAnchor="middle" fontSize="1.05" fill={GOLD}>
+        {sigil}
+      </text>
+
+      {/* 몸판 — 곧게 뻗은 하이넥 보디스 */}
+      <path d="M10 8.9 L14 8.9 L14.3 14 L9.7 14 Z" fill={COAT} />
+      <path d="M10.8 9.4 L13.2 9.4 L13.4 13.6 L10.6 13.6 Z" fill="#eef0f4" opacity="0.9" />
+      {[10.2, 11.1, 12, 12.9].map((cy) => (
+        <circle key={cy} cx="12" cy={cy} r="0.2" fill={GOLD} />
+      ))}
+      {/* 라펠 + 견장 술 장식(작게) */}
+      <path d="M10 8.9 L8.7 9.6 L9.7 12 L10.6 10 Z" fill={GOLD} opacity="0.35" />
+      <path d="M14 8.9 L15.3 9.6 L14.3 12 L13.4 10 Z" fill={GOLD} opacity="0.35" />
+      <path d="M8.9 9.4 L7.6 8.6 L9 7.8 L9.6 9 Z" fill={GOLD} />
+      <path d="M15.1 9.4 L16.4 8.6 L15 7.8 L14.4 9 Z" fill={GOLD} />
+
+      {/* 팔 — 한 손엔 장갑 낀 지팡이, 반대 손은 스커트 자락을 가볍게 쥔다 */}
+      <rect x="7.7" y="9.6" width="1.9" height="5.2" rx="0.9" fill={COAT} />
+      <rect x="14.4" y="9.6" width="1.9" height="4.6" rx="0.9" fill={COAT} />
+      <circle cx="8.6" cy="15.1" r="0.9" fill="#1e2030" />
+      <circle cx="15.3" cy="14.5" r="0.85" fill={COAT} />
+
+      {/* 금장 지팡이 */}
+      <rect x="8.2" y="10.6" width="0.3" height="11.6" fill={GOLD} />
+      <circle cx="8.35" cy="10.2" r="0.62" fill={GOLD} />
+      <circle cx="8.35" cy="10.2" r="0.26" fill="#fff2cf" />
+
+      {/* 머리 — 어깨 아래로 흐르는 긴 머리 + 작은 티아라 */}
+      <circle cx="12" cy="6.1" r="3.5" fill={SKIN} />
+      <path
+        d="M8.5 6.4 Q7.8 12.6 9.4 16.6 Q9.9 12 9.6 6.6 Q8.9 3.6 12 2.6 Q15.1 3.6 14.4 6.6 Q14.1 12 14.6 16.6 Q16.2 12.6 15.5 6.4 Q15.2 2 12 2 Q8.8 2 8.5 6.4 Z"
+        fill="#3a2a22"
+      />
+      <path d="M9.2 5.4 Q10.6 3.8 12 4.4 Q13.4 3.8 14.8 5.4" stroke="#54402f" strokeWidth="0.24" fill="none" strokeLinecap="round" />
+      <path d="M9.3 3.3 Q12 2 14.7 3.3" stroke={GOLD} strokeWidth="0.3" fill="none" />
+      <circle cx="12" cy="2.7" r="0.28" fill={GOLD} />
+    </g>
+  );
+}
+
 /* ────────────────────────────── 본체 ────────────────────────────── */
 
-export default function CharacterSprite({ palette, sigil, state, jobClass }: Props) {
+export default function CharacterSprite({ palette, sigil, state, jobClass, gender = 'male' }: Props) {
   const m = bodyMotion(state);
   const mark = overhead(state);
   const working = ['fighting', 'writing', 'thinking', 'collaborating', 'mailing', 'working'].includes(state);
@@ -656,7 +726,8 @@ export default function CharacterSprite({ palette, sigil, state, jobClass }: Pro
         {jobClass === 'strategist' ? <StrategistBody state={state} working={working} /> : null}
         {jobClass === 'rune_engineer' ? <EngineerBody state={state} working={working} /> : null}
         {jobClass === 'sage' ? <SageBody state={state} working={working} /> : null}
-        {jobClass === 'sovereign' ? <SovereignBody palette={palette} sigil={sigil} /> : null}
+        {jobClass === 'sovereign' && gender === 'female' ? <SovereignBodyFemale palette={palette} sigil={sigil} /> : null}
+        {jobClass === 'sovereign' && gender !== 'female' ? <SovereignBody palette={palette} sigil={sigil} /> : null}
       </motion.g>
 
       {mark ? (

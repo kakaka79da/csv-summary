@@ -17,6 +17,8 @@ export interface Session {
   accountName: string;
   /** 데모 로그인 여부. 실제 인증은 백엔드 구현 항목이다. */
   demo: true;
+  /** role 이 'human_staff' 일 때, humanStaff 명부의 어느 레코드인지. */
+  humanStaffId?: string | null;
 }
 
 /* ──────────────────────────────── 회사 ──────────────────────────────── */
@@ -25,6 +27,7 @@ export interface Company {
   name: string;
   ceoName: string;
   ceoCharacterName: string;
+  ceoGender: CeoGender;
   ceoAppearance: AppearanceId;
   country: string;
   branch: string;
@@ -33,8 +36,19 @@ export interface Company {
   monthlyBudgetUsd: number;
   firstGoal: string;
   foundedAt: number;
+
+  /**
+   * 사업자 개업 시 필수 항목. 사원이 가입할 때 입력하는 회사 코드도 여기서 나온다.
+   * ⚠️ 이 프로토타입은 이 값들을 실제로 검증하거나 외부에 제출하지 않는다 — 화면 표시와
+   * 사원 가입 시 코드 대조용으로만 쓰인다.
+   */
+  code: string;
+  ceoPhone: string;
+  businessRegNo: string;
+  ceoEmail: string;
 }
 
+export type CeoGender = 'male' | 'female';
 export type AppearanceId = 'sovereign' | 'warden' | 'seer' | 'artificer';
 
 /* ──────────────────────────── 오피스 / 좌표 ──────────────────────────── */
@@ -186,6 +200,46 @@ export interface Employee {
 }
 
 export type ReportStyle = 'concise' | 'detailed' | 'bullet';
+
+/* ─────────────────────────── 인간 사원 명부 ──────────────────────────── */
+
+/**
+ * 인간 사원 캐릭터 외형 프리셋. AI 직원 3명과 겹치지 않는 별도 도형 세트다.
+ * 사원 가입 화면에서 5개 중 하나를 고른다.
+ */
+export type EmployeeAppearanceId = 'scribe' | 'engineer' | 'sage' | 'guardian' | 'ranger';
+
+export type HumanStaffStatus = 'pending' | 'approved' | 'rejected' | 'removed';
+
+/** 오피스 안에서 오늘 어디 있는지. 실제 근태 상태를 그대로 반영한다. */
+export type WorkMode = 'office' | 'remote' | 'not_started';
+
+/**
+ * 인간 사원 명부. AI 직원(Employee)과는 별개의 얕은 레코드다 —
+ * 미션/상태 머신/API 바인딩을 갖지 않으며, 오피스 화면에는 장식용으로만 표시된다.
+ *
+ * ⚠️ 보안: 급여·복지는 회사 내부 관리용 화면 값일 뿐, 실제 지급·회계 시스템과
+ * 연동되지 않는다. 이메일·전화번호도 실제로 검증/발송되지 않는다(백엔드 구현 항목).
+ */
+export interface HumanStaffRecord {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  /** 가입 시 입력한 회사 코드. company.code 와 대조해 승인 대상 회사를 정한다. */
+  companyCode: string;
+  role: string;
+  appearanceId: EmployeeAppearanceId;
+  status: HumanStaffStatus;
+  workMode: WorkMode;
+
+  monthlySalaryUsd: number | null;
+  benefits: string[];
+
+  requestedAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+}
 
 /* ──────────────────────────── 개인 기억 ─────────────────────────────── */
 
@@ -402,7 +456,9 @@ export type ApprovalKind =
   | 'human_permission'
   | 'leave'
   | 'return'
-  | 'budget_overrun_resume';
+  | 'budget_overrun_resume'
+  /** 회사 삭제. 대표가 요청하지만, 반드시 플랫폼 관리자만 승인할 수 있다. */
+  | 'company_deletion';
 
 export type ApprovalStatus =
   | 'pending'

@@ -595,3 +595,198 @@ describe('직원을 방으로 보내기 (클릭 이동)', () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe('사원 가입·승인', () => {
+  it('회사 코드가 틀리면 가입할 수 없다', () => {
+    bootstrap();
+    const r = useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'chulsoo@example.com',
+      phone: '010-1111-2222',
+      companyCode: 'WRONG-CODE',
+      role: '디자이너',
+      appearanceId: 'scribe',
+    });
+    expect(r.ok).toBe(false);
+    expect(Object.keys(useWorld.getState().humanStaff)).toHaveLength(0);
+  });
+
+  it('이메일 형식이 아니면 가입할 수 없다', () => {
+    bootstrap();
+    const code = useWorld.getState().company!.code;
+    const r = useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'not-an-email',
+      phone: '',
+      companyCode: code,
+      role: '디자이너',
+      appearanceId: 'scribe',
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('올바른 코드로 가입하면 대기 상태 세션이 되고, 대표가 승인하면 출근 상태가 된다', () => {
+    bootstrap();
+    const code = useWorld.getState().company!.code;
+    const r = useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'chulsoo@example.com',
+      phone: '010-1111-2222',
+      companyCode: code,
+      role: '디자이너',
+      appearanceId: 'ranger',
+    });
+    expect(r.ok).toBe(true);
+
+    let s = useWorld.getState();
+    expect(s.session?.role).toBe('human_staff');
+    const staffId = s.session!.humanStaffId!;
+    expect(s.humanStaff[staffId].status).toBe('pending');
+    expect(s.humanStaff[staffId].workMode).toBe('not_started');
+
+    // 같은 이메일로 중복 가입은 안 된다.
+    const dup = useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'chulsoo@example.com',
+      phone: '',
+      companyCode: code,
+      role: '디자이너',
+      appearanceId: 'scribe',
+    });
+    expect(dup.ok).toBe(false);
+
+    // 대표로 전환해 승인한다.
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    useWorld.getState().decideHumanStaffApplication(staffId, 'approved');
+
+    s = useWorld.getState();
+    expect(s.humanStaff[staffId].status).toBe('approved');
+    expect(s.humanStaff[staffId].workMode).toBe('office');
+    expect(s.humanStaff[staffId].decidedBy).toBe(s.session?.accountName);
+
+    // 사원이 다시 이메일로 로그인하면 승인된 상태를 그대로 이어서 본다.
+    useWorld.getState().logout();
+    const cont = useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    expect(cont.ok).toBe(true);
+    expect(useWorld.getState().session?.humanStaffId).toBe(staffId);
+  });
+
+  it('대표가 아니면 승인·내보내기를 할 수 없다', () => {
+    bootstrap();
+    const code = useWorld.getState().company!.code;
+    useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'chulsoo@example.com',
+      phone: '',
+      companyCode: code,
+      role: '디자이너',
+      appearanceId: 'scribe',
+    });
+    const staffId = useWorld.getState().session!.humanStaffId!;
+
+    // 아직 사원 세션인 채로 승인을 시도해도 무시된다.
+    useWorld.getState().decideHumanStaffApplication(staffId, 'approved');
+    expect(useWorld.getState().humanStaff[staffId].status).toBe('pending');
+  });
+
+  it('대표는 재직 중인 사원을 내보내고 다시 불러들일 수 있다', () => {
+    bootstrap();
+    const code = useWorld.getState().company!.code;
+    useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'chulsoo@example.com',
+      phone: '',
+      companyCode: code,
+      role: '디자이너',
+      appearanceId: 'scribe',
+    });
+    const staffId = useWorld.getState().session!.humanStaffId!;
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    useWorld.getState().decideHumanStaffApplication(staffId, 'approved');
+
+    useWorld.getState().removeHumanStaff(staffId);
+    expect(useWorld.getState().humanStaff[staffId].status).toBe('removed');
+    expect(useWorld.getState().humanStaff[staffId].workMode).toBe('not_started');
+
+    useWorld.getState().reinstateHumanStaff(staffId);
+    expect(useWorld.getState().humanStaff[staffId].status).toBe('approved');
+    expect(useWorld.getState().humanStaff[staffId].workMode).toBe('office');
+  });
+
+  it('대표는 급여·복지·근무 형태를 갱신할 수 있다', () => {
+    bootstrap();
+    const code = useWorld.getState().company!.code;
+    useWorld.getState().applyAsHumanStaff({
+      name: '김철수',
+      email: 'chulsoo@example.com',
+      phone: '',
+      companyCode: code,
+      role: '디자이너',
+      appearanceId: 'scribe',
+    });
+    const staffId = useWorld.getState().session!.humanStaffId!;
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    useWorld.getState().decideHumanStaffApplication(staffId, 'approved');
+
+    useWorld.getState().updateHumanStaff(staffId, { monthlySalaryUsd: 3200, benefits: ['4대 보험', '재택 지원금'], workMode: 'remote' });
+    const rec = useWorld.getState().humanStaff[staffId];
+    expect(rec.monthlySalaryUsd).toBe(3200);
+    expect(rec.benefits).toEqual(['4대 보험', '재택 지원금']);
+    expect(rec.workMode).toBe('remote');
+  });
+});
+
+describe('회사 삭제 — 플랫폼 관리자 승인 필요', () => {
+  it('대표가 요청하면 승인 대기 목록에 들어간다', () => {
+    bootstrap();
+    const r = useWorld.getState().requestCompanyDeletion('사업 종료');
+    expect(r.ok).toBe(true);
+    const approval = useWorld.getState().approvals.find((a) => a.kind === 'company_deletion');
+    expect(approval?.status).toBe('pending');
+
+    // 중복 요청은 막는다.
+    const dup = useWorld.getState().requestCompanyDeletion('또 요청');
+    expect(dup.ok).toBe(false);
+  });
+
+  it('대표 본인은 자신의 삭제 요청을 승인할 수 없다', () => {
+    bootstrap();
+    useWorld.getState().requestCompanyDeletion('사업 종료');
+    const approvalId = useWorld.getState().approvals.find((a) => a.kind === 'company_deletion')!.id;
+
+    useWorld.getState().decideApproval(approvalId, 'approved');
+    expect(useWorld.getState().approvals.find((a) => a.id === approvalId)?.status).toBe('pending');
+    expect(useWorld.getState().company).not.toBeNull();
+  });
+
+  it('플랫폼 관리자가 승인하면 회사 데이터가 전부 삭제되고 로그아웃된다', () => {
+    bootstrap();
+    connectAll();
+    useWorld.getState().requestCompanyDeletion('사업 종료');
+    const approvalId = useWorld.getState().approvals.find((a) => a.kind === 'company_deletion')!.id;
+
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    useWorld.getState().decideApproval(approvalId, 'approved');
+
+    const s = useWorld.getState();
+    expect(s.company).toBeNull();
+    expect(Object.keys(s.employees)).toHaveLength(0);
+    expect(s.session).toBeNull();
+  });
+
+  it('플랫폼 관리자가 거절하면 회사는 그대로 남는다', () => {
+    bootstrap();
+    useWorld.getState().requestCompanyDeletion('사업 종료');
+    const approvalId = useWorld.getState().approvals.find((a) => a.kind === 'company_deletion')!.id;
+
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    useWorld.getState().decideApproval(approvalId, 'rejected');
+
+    expect(useWorld.getState().approvals.find((a) => a.id === approvalId)?.status).toBe('rejected');
+  });
+});

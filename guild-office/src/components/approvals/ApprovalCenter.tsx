@@ -20,6 +20,7 @@ const KIND_LABEL: Record<ApprovalKind, string> = {
   leave: 'AI 직원 휴직',
   return: 'AI 직원 복귀',
   budget_overrun_resume: '예산 초과 업무 재개',
+  company_deletion: '회사 삭제 (플랫폼 관리자 승인 필요)',
 };
 
 const RISK_TONE = { low: 'vital', medium: 'gold', high: 'ember' } as const;
@@ -78,10 +79,14 @@ function ApprovalCard({ approval }: { approval: Approval }) {
   const decide = useWorld((s) => s.decideApproval);
   const employees = useWorld((s) => s.employees);
   const company = useWorld((s) => s.company);
+  const session = useWorld((s) => s.session);
   const [note, setNote] = useState('');
   if (!company) return null;
 
   const requester = employees[approval.requesterId];
+  // 회사 삭제는 대표가 요청하지만, 반드시 플랫폼 관리자만 결정할 수 있다.
+  const adminOnly = approval.kind === 'company_deletion';
+  const canDecide = !adminOnly || session?.role === 'platform_admin';
 
   return (
     <div className="rounded-xl border border-gold/40 bg-stone-900/70 p-4">
@@ -115,32 +120,54 @@ function ApprovalCard({ approval }: { approval: Approval }) {
         />
       </div>
 
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
-        <Button size="sm" onClick={() => decide(approval.id, 'approved', note || undefined)}>
-          승인 · 봉인 해제
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!note.trim()}
-          title={!note.trim() ? '조건을 입력하세요' : undefined}
-          onClick={() => decide(approval.id, 'conditional', note)}
-        >
-          조건부 승인
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!note.trim()}
-          title={!note.trim() ? '요청 사항을 입력하세요' : undefined}
-          onClick={() => decide(approval.id, 'changes_requested', note)}
-        >
-          수정 요청
-        </Button>
-        <Button size="sm" variant="danger" onClick={() => decide(approval.id, 'rejected', note || undefined)}>
-          거절
-        </Button>
-      </div>
+      {adminOnly && !canDecide ? (
+        <div className="mt-3">
+          <Notice tone="warn">
+            회사 삭제는 대표 본인이 승인할 수 없습니다. 플랫폼 관리자만 결정할 수 있습니다 — 개별 회사를
+            지우는 일은 되돌리기 어려운 큰 결정이기 때문입니다.
+          </Notice>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          {adminOnly ? (
+            <>
+              <Button size="sm" variant="danger" onClick={() => decide(approval.id, 'approved', note || undefined)}>
+                삭제 승인
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => decide(approval.id, 'rejected', note || undefined)}>
+                거절
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" onClick={() => decide(approval.id, 'approved', note || undefined)}>
+                승인 · 봉인 해제
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!note.trim()}
+                title={!note.trim() ? '조건을 입력하세요' : undefined}
+                onClick={() => decide(approval.id, 'conditional', note)}
+              >
+                조건부 승인
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!note.trim()}
+                title={!note.trim() ? '요청 사항을 입력하세요' : undefined}
+                onClick={() => decide(approval.id, 'changes_requested', note)}
+              >
+                수정 요청
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => decide(approval.id, 'rejected', note || undefined)}>
+                거절
+              </Button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

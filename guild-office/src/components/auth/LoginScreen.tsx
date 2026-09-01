@@ -4,18 +4,20 @@
  * ⚠️ 이 화면에는 암호 입력이 아예 없다. 프로토타입에서 암호를 다루면
  * 프론트엔드에 자격증명이 남게 되므로, 실제 인증은 백엔드 항목으로 분리한다.
  */
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { Button, Notice } from '@/components/ui/primitives';
 import { PLATFORM_MAKER } from '@/data/seed';
 import EasterEggCredit from '@/components/auth/EasterEggCredit';
+import StaffSignIn from '@/components/auth/StaffSignIn';
 
 const ROLES = [
   {
     role: 'ceo' as const,
     title: '회사 대표 (CEO)',
     flavor: '길드 마스터',
-    desc: '회사 창립, 업무 지시, 모든 비용·승인 결정 권한',
+    desc: '회사 선택 또는 새 회사 창립, 업무 지시, 모든 비용·승인 결정 권한',
     sigil: '♛',
   },
   {
@@ -29,7 +31,7 @@ const ROLES = [
     role: 'human_staff' as const,
     title: '인간 직원',
     flavor: '길드원',
-    desc: '회사 창립 이후 대표가 초대하면 활성화된다',
+    desc: '이메일 확인 후 회사 코드로 가입 신청, 대표 승인 후 입장',
     sigil: '☗',
   },
 ];
@@ -38,6 +40,21 @@ export default function LoginScreen() {
   const login = useWorld((s) => s.loginDemo);
   const company = useWorld((s) => s.company);
   const makerName = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
+  const [staffFlow, setStaffFlow] = useState(false);
+
+  if (staffFlow) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-2xl">
+          <div className="mb-6 text-center">
+            <div className="mb-3 text-4xl">⚔</div>
+            <h1 className="rune-title text-3xl">길드 오피스</h1>
+          </div>
+          <StaffSignIn onBack={() => setStaffFlow(false)} />
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
@@ -63,7 +80,7 @@ export default function LoginScreen() {
                   key={r.role}
                   type="button"
                   disabled={locked}
-                  onClick={() => login(r.role)}
+                  onClick={() => (r.role === 'human_staff' ? setStaffFlow(true) : login(r.role))}
                   className={`flex w-full items-center gap-4 rounded-xl border px-4 py-3 text-left transition-colors ${
                     locked
                       ? 'cursor-not-allowed border-stone-800 opacity-40'

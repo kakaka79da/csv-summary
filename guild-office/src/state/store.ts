@@ -19,6 +19,7 @@ import {
   WALK_SPEED,
   createEmployee,
   findModel,
+  generateCompanyCode,
   roomById,
 } from '@/data/seed';
 import { advanceAlongPath, findPath } from '@/lib/pathfinding';
@@ -50,7 +51,9 @@ import type {
   Company,
   Difficulty,
   Employee,
+  EmployeeAppearanceId,
   EmployeeMemory,
+  HumanStaffRecord,
   LedgerEntry,
   Message,
   MessageKind,
@@ -84,6 +87,12 @@ export interface WorldState {
   employeeOrder: string[];
 
   /**
+   * 인간 사원 명부. AI 직원과 별개의 얕은 레코드로 관리한다 — 미션/상태 머신에는
+   * 참여하지 않고, 오피스 화면에는 근태(workMode)에 따라 장식용으로만 표시된다.
+   */
+  humanStaff: Record<string, HumanStaffRecord>;
+
+  /**
    * 직원별 개인 기억. 성품·업무 원칙·합의사항·교훈을 담으며, 모델(binding)과는
    * 완전히 독립된 저장소다. 모델을 바꿔도 이 값은 그대로 유지된다.
    * 정본은 대표의 구글 드라이브 폴더에 있고, 이 값은 앱이 들고 있는 사본이다.
@@ -101,7 +110,7 @@ export interface WorldState {
 
   ui: {
     selectedEmployeeId: string | null;
-    openPanel: null | 'missions' | 'approvals' | 'cost' | 'audit' | 'dungeon' | 'people' | 'settings';
+    openPanel: null | 'missions' | 'approvals' | 'cost' | 'audit' | 'dungeon' | 'people' | 'settings' | 'graph';
     /** 면담 대기열 (순서대로 1:1 면담) */
     interviewQueue: string[];
     toast: string | null;
@@ -134,7 +143,47 @@ export interface WorldActions {
    */
   sendEmployeeToRoom: (employeeId: string, room: RoomId) => { ok: boolean; error?: string; messaged?: boolean };
 
-  foundCompany: (input: Omit<Company, 'foundedAt'>) => void;
+  /* ── 인간 사원 가입·근태 ──────────────────────────────────────────── */
+
+  /**
+   * 이메일로 사원 로그인 화면에 들어온다. 이미 신청 기록이 있으면 그 상태(대기/승인됨/
+   * 거절/퇴사)에 맞는 화면으로 보내고, 없으면 새로 가입할 수 있다고 알려준다.
+   */
+  lookupHumanStaffByEmail: (email: string) => HumanStaffRecord | null;
+
+  /** 사원 가입 신청. 회사 코드가 맞아야 하고, 이메일은 필수다. 곧바로 대기중 세션이 된다. */
+  applyAsHumanStaff: (input: {
+    name: string;
+    email: string;
+    phone: string;
+    companyCode: string;
+    role: string;
+    appearanceId: EmployeeAppearanceId;
+  }) => { ok: boolean; error?: string };
+
+  /** 이미 신청한 이메일로 다시 로그인한다 (대기/승인/거절 상태 그대로 이어서 본다). */
+  continueHumanStaffSession: (email: string) => { ok: boolean; error?: string };
+
+  /** 대표가 가입 신청을 승인하거나 거절한다. */
+  decideHumanStaffApplication: (id: string, decision: 'approved' | 'rejected') => void;
+  /** 대표가 재직 중인 사원을 내보낸다. 즉시 처리되며 승인 절차가 필요 없다. */
+  removeHumanStaff: (id: string) => void;
+  /** 내보냈던 사원을 대표가 다시 불러들인다. */
+  reinstateHumanStaff: (id: string) => void;
+  /** 급여·복지·근무 형태를 대표가 갱신한다. */
+  updateHumanStaff: (
+    id: string,
+    patch: Partial<Pick<HumanStaffRecord, 'role' | 'monthlySalaryUsd' | 'benefits' | 'workMode'>>,
+  ) => void;
+
+  /**
+   * 회사 삭제 요청. 대표만 요청할 수 있고, 반드시 플랫폼 관리자의 승인을 거쳐야
+   * 실제로 지워진다 — 개인 회사를 삭제하는 일은 되돌리기 어려운 큰 결정이기 때문이다.
+   */
+  requestCompanyDeletion: (reason: string) => { ok: boolean; error?: string };
+
+  /** 회사 코드는 대표가 입력하지 않는다 — 창립 시 자동으로 발급된다. */
+  foundCompany: (input: Omit<Company, 'foundedAt' | 'code'>) => void;
   buildOffice: () => void;
   summonEmployees: () => void;
   startInterviews: () => void;
@@ -220,6 +269,7 @@ const initialState: WorldState = {
   platformMakerName: null,
   employees: {},
   employeeOrder: [],
+  humanStaff: {},
   memories: {},
   missions: {},
   missionOrder: [],
@@ -355,12 +405,19 @@ export const useWorld = create<Store>()(
       /* ── 회사 창립 ─────────────────────────────────────────────────── */
       foundCompany: (input) => {
         const s = get();
-        const company: Company = { ...input, foundedAt: Date.now() };
+        const code = generateCompanyCode(input.name);
+        const company: Company = { ...input, code, foundedAt: Date.now() };
         set({
           company,
           phase: 'office_build',
           session: s.session ? { ...s.session, accountName: input.ceoName } : s.session,
-          audit: audit(s.audit, input.ceoName, '회사 창립', company.name, `${company.branch} / ${company.currency}`),
+          audit: audit(
+            s.audit,
+            input.ceoName,
+            '회사 창립',
+            company.name,
+            `${company.branch} / ${company.currency} · 사원 가입 코드 ${code}`,
+          ),
         });
       },
 
@@ -742,6 +799,8 @@ export const useWorld = create<Store>()(
         const s = get();
         const approval = s.approvals.find((a) => a.id === approvalId);
         if (!approval || approval.status !== 'pending') return;
+        // 회사 삭제는 대표 본인이 결정할 수 없다 — 반드시 플랫폼 관리자만.
+        if (approval.kind === 'company_deletion' && s.session?.role !== 'platform_admin') return;
 
         const approvals = s.approvals.map((a) =>
           a.id === approvalId ? { ...a, status: decision, note: note ?? null, decidedAt: Date.now() } : a,
@@ -751,6 +810,24 @@ export const useWorld = create<Store>()(
         let chats = s.chats;
 
         const positive = decision === 'approved' || decision === 'conditional';
+
+        if (approval.kind === 'company_deletion') {
+          if (positive) {
+            const companyName = s.company?.name ?? '(알 수 없음)';
+            set({
+              ...initialState,
+              platformMakerName: s.platformMakerName,
+              audit: audit(s.audit, s.session?.accountName ?? '-', '회사 삭제 승인', companyName, '데이터 전체 삭제됨'),
+            });
+          } else {
+            set({
+              approvals,
+              audit: audit(s.audit, s.session?.accountName ?? '-', '회사 삭제 거절', s.company?.name ?? '-', note ?? ''),
+              ui: { ...s.ui, toast: '회사 삭제 요청을 거절했습니다.' },
+            });
+          }
+          return;
+        }
 
         if (approval.missionId) {
           const mission = s.missions[approval.missionId];
@@ -1011,6 +1088,155 @@ export const useWorld = create<Store>()(
         return { ok: true };
       },
 
+      /* ── 인간 사원 가입·근태 ──────────────────────────────────────── */
+      lookupHumanStaffByEmail: (email) => {
+        const s = get();
+        const trimmed = email.trim().toLowerCase();
+        return Object.values(s.humanStaff).find((r) => r.email.toLowerCase() === trimmed) ?? null;
+      },
+
+      applyAsHumanStaff: (input) => {
+        const s = get();
+        if (!s.company) return { ok: false, error: '아직 창립된 회사가 없습니다.' };
+        const name = input.name.trim();
+        const email = input.email.trim().toLowerCase();
+        if (!name) return { ok: false, error: '이름을 입력하세요.' };
+        if (!email.includes('@')) return { ok: false, error: '올바른 이메일 주소를 입력하세요.' };
+        if (input.companyCode.trim().toUpperCase() !== s.company.code.toUpperCase()) {
+          return { ok: false, error: '회사 코드가 올바르지 않습니다.' };
+        }
+        if (Object.values(s.humanStaff).some((r) => r.email.toLowerCase() === email)) {
+          return { ok: false, error: '이미 이 이메일로 신청한 기록이 있습니다. "이메일로 계속하기"를 이용하세요.' };
+        }
+
+        const id = nid('staff');
+        const record: HumanStaffRecord = {
+          id,
+          name,
+          email,
+          phone: input.phone.trim() || null,
+          companyCode: s.company.code,
+          role: input.role.trim() || '사원',
+          appearanceId: input.appearanceId,
+          status: 'pending',
+          workMode: 'not_started',
+          monthlySalaryUsd: null,
+          benefits: [],
+          requestedAt: Date.now(),
+          decidedAt: null,
+          decidedBy: null,
+        };
+        set({
+          humanStaff: { ...s.humanStaff, [id]: record },
+          session: { role: 'human_staff', accountName: name, demo: true, humanStaffId: id },
+          phase: 'live',
+          audit: audit(s.audit, name, '사원 가입 신청', s.company.name, `이메일 ${email}`),
+        });
+        return { ok: true };
+      },
+
+      continueHumanStaffSession: (email) => {
+        const s = get();
+        const trimmed = email.trim().toLowerCase();
+        const record = Object.values(s.humanStaff).find((r) => r.email.toLowerCase() === trimmed);
+        if (!record) return { ok: false, error: '해당 이메일로 신청한 기록이 없습니다. 먼저 가입 신청을 해주세요.' };
+        set({
+          session: { role: 'human_staff', accountName: record.name, demo: true, humanStaffId: record.id },
+          phase: 'live',
+          audit: audit(s.audit, record.name, '사원 로그인', s.company?.name ?? '-', record.status),
+        });
+        return { ok: true };
+      },
+
+      decideHumanStaffApplication: (id, decision) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return;
+        const rec = s.humanStaff[id];
+        if (!rec || rec.status !== 'pending') return;
+        const updated: HumanStaffRecord = {
+          ...rec,
+          status: decision,
+          decidedAt: Date.now(),
+          decidedBy: s.session.accountName,
+          workMode: decision === 'approved' ? 'office' : rec.workMode,
+        };
+        set({
+          humanStaff: { ...s.humanStaff, [id]: updated },
+          audit: audit(
+            s.audit,
+            s.session.accountName,
+            decision === 'approved' ? '사원 가입 승인' : '사원 가입 거절',
+            rec.name,
+            rec.email,
+          ),
+        });
+      },
+
+      removeHumanStaff: (id) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return;
+        const rec = s.humanStaff[id];
+        if (!rec) return;
+        set({
+          humanStaff: { ...s.humanStaff, [id]: { ...rec, status: 'removed', workMode: 'not_started' } },
+          audit: audit(s.audit, s.session.accountName, '사원 내보냄', rec.name, rec.email),
+        });
+      },
+
+      reinstateHumanStaff: (id) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return;
+        const rec = s.humanStaff[id];
+        if (!rec || rec.status !== 'removed') return;
+        set({
+          humanStaff: { ...s.humanStaff, [id]: { ...rec, status: 'approved', workMode: 'office' } },
+          audit: audit(s.audit, s.session.accountName, '사원 재입장', rec.name, rec.email),
+        });
+      },
+
+      updateHumanStaff: (id, patch) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return;
+        const rec = s.humanStaff[id];
+        if (!rec) return;
+        set({ humanStaff: { ...s.humanStaff, [id]: { ...rec, ...patch } } });
+      },
+
+      requestCompanyDeletion: (reason) => {
+        const s = get();
+        if (s.session?.role !== 'ceo' || !s.company) {
+          return { ok: false, error: '대표만 요청할 수 있습니다.' };
+        }
+        if (s.approvals.some((a) => a.kind === 'company_deletion' && a.status === 'pending')) {
+          return { ok: false, error: '이미 처리 대기 중인 삭제 요청이 있습니다.' };
+        }
+        const approval: Approval = {
+          id: nid('apr'),
+          kind: 'company_deletion',
+          title: `"${s.company.name}" 회사 삭제 요청`,
+          reason: reason.trim() || '대표가 회사 삭제를 요청했습니다.',
+          requesterId: s.company.ceoName,
+          participants: [],
+          estCostUsd: 0,
+          estSeconds: 0,
+          risk: 'high',
+          model: null,
+          tools: [],
+          dataScope: [],
+          status: 'pending',
+          note: null,
+          missionId: null,
+          createdAt: Date.now(),
+          decidedAt: null,
+        };
+        set({
+          approvals: [approval, ...s.approvals],
+          audit: audit(s.audit, s.session.accountName, '회사 삭제 요청', s.company.name, '플랫폼 관리자 승인 대기'),
+          ui: { ...s.ui, toast: '회사 삭제를 요청했습니다. 플랫폼 관리자의 승인이 필요합니다.' },
+        });
+        return { ok: true };
+      },
+
       /* ── 이스터에그 ───────────────────────────────────────────────── */
       tryEasterEggCode: (code) => {
         if (code.trim() !== EASTER_EGG_CODE) return false;
@@ -1138,6 +1364,7 @@ export const useWorld = create<Store>()(
         platformMakerName: s.platformMakerName,
         employees: s.employees,
         employeeOrder: s.employeeOrder,
+        humanStaff: s.humanStaff,
         memories: s.memories,
         missions: s.missions,
         missionOrder: s.missionOrder,

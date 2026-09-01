@@ -5,8 +5,11 @@
  * 벽이 자동으로 그려지므로, 도면을 바꿔도 통행 가능 여부가 어긋나지 않는다.
  */
 import type {
+  CeoGender,
   Employee,
+  EmployeeAppearanceId,
   Grid,
+  JobClass,
   ProviderBinding,
   ProviderId,
   Room,
@@ -366,12 +369,72 @@ export const COMPANY_DEFAULTS = {
   name: '크림바스켓',
   ceoName: '강민호',
   ceoCharacterName: '민호',
+  ceoGender: 'male' as const,
   ceoAppearance: 'sovereign' as const,
   country: '대한민국',
   branch: '한국 본사',
   currency: 'KRW' as const,
   monthlyBudgetUsd: 60,
   firstGoal: '회사의 첫 번째 공식 제안서를 완성한다',
+  code: 'CRM-0001',
+  ceoPhone: '010-0000-0000',
+  businessRegNo: '000-00-00000',
+  ceoEmail: 'ceo@example.com',
 };
 
 export const PLATFORM_MAKER = 'mkang';
+
+/** 회사 코드를 새로 만든다. 사원이 가입할 때 이 값을 입력해야 한다. */
+export function generateCompanyCode(companyName: string): string {
+  const prefix = (companyName.replace(/[^A-Za-z0-9가-힣]/g, '').slice(0, 3) || 'CO').toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${prefix}-${rand}`;
+}
+
+/* ──────────────────────── 인간 사원 외형 프리셋 ──────────────────────── */
+
+/**
+ * 사원 가입 시 고르는 캐릭터 외형 5종. AI 직원 3명(엘레나·카일·올리비아)의 도형과
+ * 대표의 남/여 도형(총 4가지 몸통)을 새 색상 배합으로 재활용한다 — 새 그림 자산 없이
+ * 다섯 가지 실루엣을 만드는 방법이다. CharacterSprite 는 jobClass + gender + palette
+ * 조합만으로 그려지므로, 이 프리셋도 그 세 값만 정의하면 된다.
+ */
+export const EMPLOYEE_APPEARANCES: Record<
+  EmployeeAppearanceId,
+  { label: string; jobClass: JobClass; gender?: CeoGender; palette: Employee['palette']; sigil: string }
+> = {
+  scribe: {
+    label: '서기관형',
+    jobClass: 'strategist',
+    palette: { robe: '#3c2f5e', trim: '#d8c9e8', aura: '#b79bf0' },
+    sigil: '✎',
+  },
+  engineer: {
+    label: '공학자형',
+    jobClass: 'rune_engineer',
+    palette: { robe: '#1f2a1c', trim: '#8ee85a', aura: '#8ee85a' },
+    sigil: '⚙',
+  },
+  sage: {
+    label: '현자형',
+    jobClass: 'sage',
+    palette: { robe: '#4a2a2f', trim: '#f0c9a0', aura: '#f0955a' },
+    sigil: '❖',
+  },
+  guardian: {
+    label: '수호자형 (남)',
+    jobClass: 'sovereign',
+    gender: 'male',
+    palette: { robe: '#4a1f24', trim: '#d8b8a0', aura: '#e89a7a' },
+    sigil: '⛊',
+  },
+  ranger: {
+    label: '순찰자형 (여)',
+    jobClass: 'sovereign',
+    gender: 'female',
+    palette: { robe: '#1c3a2e', trim: '#bfe8c8', aura: '#7ae0a0' },
+    sigil: '☘',
+  },
+};
+
+export const EMPLOYEE_APPEARANCE_IDS = Object.keys(EMPLOYEE_APPEARANCES) as EmployeeAppearanceId[];

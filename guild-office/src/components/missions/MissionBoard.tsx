@@ -4,9 +4,12 @@
  */
 import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
-import { DIFFICULTY_LABEL, MISSION_STATUS_LABEL, duration, money } from '@/lib/format';
+import { DIFFICULTY_LABEL, MISSION_STATUS_LABEL, clock, duration, money } from '@/lib/format';
+import { downloadCsv, downloadText } from '@/lib/csv';
 import { Badge, Button, Notice, SectionTitle, StatBar } from '@/components/ui/primitives';
 import type { Mission, MissionStatus } from '@/types';
+
+const STEP_STATUS_LABEL: Record<string, string> = { pending: '대기', active: '진행', done: '완료', failed: '실패', blocked: '중단' };
 
 const STATUS_TONE: Record<MissionStatus, 'neutral' | 'gold' | 'vital' | 'ember' | 'arcane'> = {
   draft: 'neutral',
@@ -61,6 +64,44 @@ function MissionCard({ mission }: { mission: Mission }) {
   const diff = DIFFICULTY_LABEL[mission.difficulty];
   const doneCount = mission.steps.filter((s) => s.status === 'done').length;
   const overall = (doneCount / mission.steps.length) * 100;
+
+  const exportCsv = () => {
+    downloadCsv(`mission-${mission.name}.csv`, [
+      ['단계', '제목', '담당자', '상태', '진행률(%)', '예상비용(USD)', '실제비용(USD)'],
+      ...mission.steps.map((s, i) => [
+        i + 1,
+        s.title,
+        employees[s.assigneeId]?.name ?? s.assigneeId,
+        STEP_STATUS_LABEL[s.status] ?? s.status,
+        Math.round(s.progress),
+        s.estCostUsd.toFixed(4),
+        s.actualCostUsd.toFixed(4),
+      ]),
+    ]);
+  };
+
+  const exportReport = () => {
+    const lines = [
+      `# ${mission.name}`,
+      '',
+      `- 목표: ${mission.objective}`,
+      `- 요청자: ${mission.requester}`,
+      `- 담당: ${employees[mission.ownerId]?.name ?? mission.ownerId}`,
+      `- 참여: ${mission.participants.map((p) => employees[p]?.name ?? p).join(', ')}`,
+      `- 상태: ${MISSION_STATUS_LABEL[mission.status]}`,
+      `- 예상 비용: ${money(mission.estCostUsd, company.currency)}`,
+      `- 실제 비용: ${money(mission.actualCostUsd, company.currency)}`,
+      `- 생성 시각: ${clock(mission.createdAt)}`,
+      mission.failureReason ? `- 실패 사유: ${mission.failureReason}` : null,
+      '',
+      '## 단계',
+      ...mission.steps.map(
+        (s, i) =>
+          `${i + 1}. [${STEP_STATUS_LABEL[s.status] ?? s.status}] ${s.title} — 담당 ${employees[s.assigneeId]?.name ?? s.assigneeId}, 진행 ${Math.round(s.progress)}%, 실제비용 ${money(s.actualCostUsd, company.currency)}`,
+      ),
+    ].filter((l): l is string => l !== null);
+    downloadText(`mission-${mission.name}.md`, lines.join('\n'), 'text/markdown;charset=utf-8;');
+  };
 
   return (
     <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
@@ -147,7 +188,13 @@ function MissionCard({ mission }: { mission: Mission }) {
         </div>
       ) : null}
 
-      <div className="mt-3 flex justify-end gap-2">
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={exportCsv}>
+          CSV 내보내기
+        </Button>
+        <Button size="sm" variant="ghost" onClick={exportReport}>
+          보고서 내보내기
+        </Button>
         {mission.status === 'review' ? (
           <Button size="sm" onClick={() => accept(mission.id)}>
             결과 승인 · 퀘스트 완료

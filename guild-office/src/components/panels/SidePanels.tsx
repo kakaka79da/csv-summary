@@ -5,8 +5,15 @@
 import { useState } from 'react';
 import { useWorld } from '@/state/store';
 import { money } from '@/lib/format';
-import { PLATFORM_MAKER } from '@/data/seed';
+import { downloadCsv } from '@/lib/csv';
+import { EMPLOYEE_APPEARANCES, PLATFORM_MAKER } from '@/data/seed';
 import { Badge, Button, Field, Notice, SectionTitle, Select, TextInput } from '@/components/ui/primitives';
+import type { HumanStaffRecord, WorkMode } from '@/types';
+
+const WORK_MODE_LABEL: Record<WorkMode, string> = { office: '출근', remote: '재택', not_started: '미출근' };
+
+/** 데모용 지급일 관례 — 매월 25일. 실제 지급일 설정은 백엔드 항목으로 분리한다. */
+const PAYDAY_DOM = 25;
 
 const BRANCHES = [
   { id: 'kr', label: '한국 본사', region: 'ap-northeast-2 (서울)', status: '운영 중' },
@@ -63,9 +70,12 @@ export function PeoplePanel() {
         </div>
       </div>
 
-      {/* 인간 직원 초대 */}
+      {/* 인간 사원 (자체 가입 · 회사 코드) */}
+      <HumanStaffSection />
+
+      {/* 인간 직원 초대 (이메일 초대, 향후 백엔드 연결 예정 — 자체 가입과는 별도 흐름) */}
       <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
-        <SectionTitle>인간 직원 초대</SectionTitle>
+        <SectionTitle>인간 직원 초대 (이메일, 준비 중)</SectionTitle>
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="sm:col-span-2">
             <Field label="초대할 이메일">
@@ -132,6 +142,205 @@ export function PeoplePanel() {
   );
 }
 
+/**
+ * 사원이 회사 코드를 입력해 직접 신청하면 대표가 승인/거절하는 명부.
+ * 위의 "인간 직원 초대"(이메일 발송, 준비 중)와는 별도의 흐름이다.
+ */
+function HumanStaffSection() {
+  const company = useWorld((s) => s.company);
+  const humanStaff = useWorld((s) => s.humanStaff);
+  const session = useWorld((s) => s.session);
+  const decide = useWorld((s) => s.decideHumanStaffApplication);
+  const remove = useWorld((s) => s.removeHumanStaff);
+  const reinstate = useWorld((s) => s.reinstateHumanStaff);
+  const update = useWorld((s) => s.updateHumanStaff);
+  if (!company) return null;
+  const isCeo = session?.role === 'ceo';
+
+  const records = Object.values(humanStaff).sort((a, b) => b.requestedAt - a.requestedAt);
+  const pending = records.filter((r) => r.status === 'pending');
+  const roster = records.filter((r) => r.status === 'approved' || r.status === 'removed');
+  const payroll = roster.filter((r) => r.status === 'approved' && r.monthlySalaryUsd);
+
+  const today = new Date();
+  const daysUntilPayday = PAYDAY_DOM - today.getDate();
+  const paydaySoon = isCeo && payroll.length > 0 && daysUntilPayday >= 0 && daysUntilPayday <= 3;
+
+  const exportPayrollCsv = () => {
+    downloadCsv(`payroll-${company.name}.csv`, [
+      ['이름', '이메일', '직무', '근무형태', '월급(USD)', '복지'],
+      ...payroll.map((r) => [r.name, r.email, r.role, WORK_MODE_LABEL[r.workMode], (r.monthlySalaryUsd ?? 0).toFixed(2), r.benefits.join('; ')]),
+    ]);
+  };
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>인간 사원 명부 ({roster.filter((r) => r.status === 'approved').length}명)</SectionTitle>
+      <p className="mb-2 text-[11px] text-stone-500">
+        회사 코드 <span className="text-gold">{company.code}</span> 를 공유하면 사원이 직접 가입 신청을 합니다.
+      </p>
+
+      {paydaySoon ? (
+        <div className="mb-3">
+          <Notice tone="warn">
+            매월 {PAYDAY_DOM}일은 급여 지급일입니다 ({daysUntilPayday === 0 ? '오늘' : `${daysUntilPayday}일 후`}). 급여가
+            등록된 사원 {payroll.length}명, 합계{' '}
+            {money(payroll.reduce((s, r) => s + (r.monthlySalaryUsd ?? 0), 0), company.currency)}.
+          </Notice>
+        </div>
+      ) : null}
+
+      {isCeo && payroll.length > 0 ? (
+        <div className="mb-3">
+          <Button size="sm" variant="ghost" onClick={exportPayrollCsv}>
+            급여·복지 CSV 내보내기
+          </Button>
+        </div>
+      ) : null}
+
+      {pending.length > 0 ? (
+        <div className="mb-3 space-y-1.5">
+          <div className="text-[11px] font-semibold text-stone-400">승인 대기 ({pending.length})</div>
+          {pending.map((r) => (
+            <div key={r.id} className="rounded-lg border border-gold/30 bg-stone-950/40 px-3 py-2 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-stone-100">
+                  {r.name} <span className="text-stone-500">· {r.email}</span>
+                </span>
+                <Badge tone="gold">처리중</Badge>
+              </div>
+              <div className="mt-0.5 text-stone-500">
+                {r.role} · {EMPLOYEE_APPEARANCES[r.appearanceId].label}
+                {r.phone ? ` · ${r.phone}` : ''}
+              </div>
+              {isCeo ? (
+                <div className="mt-2 flex gap-1.5">
+                  <Button size="sm" onClick={() => decide(r.id, 'approved')}>
+                    승인
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => decide(r.id, 'rejected')}>
+                    거절
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-1 text-stone-600">대표만 승인·거절할 수 있습니다.</div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {roster.length > 0 ? (
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-semibold text-stone-400">명부</div>
+          {roster.map((r) => (
+            <RosterRow key={r.id} record={r} isCeo={isCeo} remove={remove} reinstate={reinstate} update={update} />
+          ))}
+        </div>
+      ) : null}
+
+      {records.length === 0 ? <p className="text-[11px] text-stone-600">아직 가입 신청이 없습니다.</p> : null}
+    </div>
+  );
+}
+
+function RosterRow({
+  record,
+  isCeo,
+  remove,
+  reinstate,
+  update,
+}: {
+  record: HumanStaffRecord;
+  isCeo: boolean;
+  remove: (id: string) => void;
+  reinstate: (id: string) => void;
+  update: (id: string, patch: Partial<Pick<HumanStaffRecord, 'role' | 'monthlySalaryUsd' | 'benefits' | 'workMode'>>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [salary, setSalary] = useState(record.monthlySalaryUsd?.toString() ?? '');
+  const [benefits, setBenefits] = useState(record.benefits.join(', '));
+
+  return (
+    <div className="rounded-lg border border-stone-800 px-3 py-2 text-[11px]">
+      <div className="flex items-center justify-between">
+        <span className="text-stone-100">
+          {record.name} <span className="text-stone-500">· {record.email}</span>
+        </span>
+        <Badge tone={record.status === 'approved' ? 'vital' : 'ember'}>
+          {record.status === 'approved' ? WORK_MODE_LABEL[record.workMode] : '내보냄'}
+        </Badge>
+      </div>
+      <div className="mt-0.5 text-stone-500">
+        {record.role}
+        {record.monthlySalaryUsd ? ` · 월급 ${money(record.monthlySalaryUsd, 'USD')}` : ''}
+        {record.benefits.length > 0 ? ` · 복지 ${record.benefits.join(', ')}` : ''}
+      </div>
+
+      {isCeo ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {record.status === 'approved' ? (
+            <>
+              <Select
+                value={record.workMode}
+                onChange={(e) => update(record.id, { workMode: e.target.value as WorkMode })}
+              >
+                <option value="office">출근</option>
+                <option value="remote">재택</option>
+                <option value="not_started">미출근</option>
+              </Select>
+              <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
+                급여·복지 편집
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  if (confirm(`${record.name} 님을 내보낼까요? 언제든 재입장 허가할 수 있습니다.`)) remove(record.id);
+                }}
+              >
+                내보내기
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => reinstate(record.id)}>
+              재입장 허가
+            </Button>
+          )}
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <Field label="월급 (USD)">
+            <TextInput type="number" min={0} value={salary} onChange={(e) => setSalary(e.target.value)} />
+          </Field>
+          <Field label="복지 (쉼표로 구분)">
+            <TextInput value={benefits} onChange={(e) => setBenefits(e.target.value)} placeholder="4대보험, 재택수당" />
+          </Field>
+          <div className="sm:col-span-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                update(record.id, {
+                  monthlySalaryUsd: salary.trim() ? Math.max(0, Number(salary) || 0) : null,
+                  benefits: benefits
+                    .split(',')
+                    .map((b) => b.trim())
+                    .filter(Boolean),
+                });
+                setEditing(false);
+              }}
+            >
+              저장
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SettingsPanel() {
   const company = useWorld((s) => s.company);
   const session = useWorld((s) => s.session);
@@ -146,10 +355,12 @@ export function SettingsPanel() {
         <Row k="로그인 계정" v={`${session?.accountName} (${session?.role})`} />
         <Row k="회사" v={company.name} />
         <Row k="회사 대표" v={`${company.ceoName} CEO`} />
+        <Row k="사원 가입 코드" v={company.code} />
         <Row k="기본 지사 / 통화" v={`${company.branch} / ${company.currency}`} />
         <Row k="월간 AI 예산" v={money(company.monthlyBudgetUsd, company.currency)} />
       </div>
 
+      {session?.role === 'ceo' ? <CompanyDeletionRequest /> : null}
       {session?.role === 'platform_admin' ? <PlatformMakerSetting /> : null}
 
       <div className="rounded-xl border border-ember/40 bg-ember/5 p-4">
@@ -232,6 +443,59 @@ function PlatformMakerSetting() {
       </div>
       {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
       <p className="mt-1 text-[11px] text-stone-500">현재: {current}</p>
+    </div>
+  );
+}
+
+/**
+ * 회사 삭제 요청 — 대표만 요청할 수 있고, 실제 삭제는 플랫폼 관리자 승인이 필요하다.
+ * "개인 회사를 삭제하는 것은 큰일"이므로 대표 단독으로 즉시 삭제되지 않는다.
+ */
+function CompanyDeletionRequest() {
+  const company = useWorld((s) => s.company);
+  const approvals = useWorld((s) => s.approvals);
+  const requestDeletion = useWorld((s) => s.requestCompanyDeletion);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  if (!company) return null;
+
+  const pendingRequest = approvals.find((a) => a.kind === 'company_deletion' && a.status === 'pending');
+
+  return (
+    <div className="rounded-xl border border-ember/40 bg-ember/5 p-4">
+      <SectionTitle>회사 삭제 요청</SectionTitle>
+      <p className="mb-2 text-[11px] leading-relaxed text-stone-400">
+        회사를 삭제하려면 먼저 요청을 보내야 합니다. 개인 회사 삭제는 되돌릴 수 없는 큰 일이므로 대표 단독으로
+        즉시 처리되지 않고, <strong className="text-ember-soft">플랫폼 관리자 승인</strong> 후 실제 삭제가
+        이루어집니다.
+      </p>
+
+      {pendingRequest ? (
+        <Notice tone="warn">
+          삭제 요청이 이미 접수되어 플랫폼 관리자 승인을 기다리고 있습니다. (승인 센터에서 확인 가능)
+        </Notice>
+      ) : (
+        <>
+          <Field label="삭제 사유 (선택)">
+            <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 사업 종료" />
+          </Field>
+          {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
+          <div className="mt-2">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                if (!confirm(`"${company.name}" 회사 삭제를 정말 요청할까요? 승인되면 모든 데이터가 삭제됩니다.`)) return;
+                const r = requestDeletion(reason);
+                if (!r.ok) setError(r.error ?? '요청할 수 없습니다.');
+                else setError(null);
+              }}
+            >
+              회사 삭제 요청
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

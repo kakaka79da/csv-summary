@@ -9,7 +9,7 @@ import { AI_EMPLOYEE_SEEDS, COMPANY_DEFAULTS, DUTIES, ROOMS } from '@/data/seed'
 import { Button, Field, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
 import CharacterSprite from '@/components/office/CharacterSprite';
 import CharacterPortrait from '@/components/office/CharacterPortrait';
-import type { AppearanceId, Company } from '@/types';
+import type { AppearanceId, CeoGender, Company } from '@/types';
 
 const APPEARANCES: Array<{ id: AppearanceId; label: string; desc: string; palette: { robe: string; trim: string; aura: string } }> = [
   { id: 'sovereign', label: '군주', desc: '네이비 예장 · 금장 자수', palette: { robe: '#252a4d', trim: '#c9a24a', aura: '#f0cd85' } },
@@ -30,12 +30,18 @@ export default function FoundingFlow() {
 function CompanyForm() {
   const foundCompany = useWorld((s) => s.foundCompany);
   const session = useWorld((s) => s.session);
-  const [form, setForm] = useState<Omit<Company, 'foundedAt'>>({ ...COMPANY_DEFAULTS });
+  const [form, setForm] = useState<Omit<Company, 'foundedAt' | 'code'>>({ ...COMPANY_DEFAULTS });
 
-  const set = <K extends keyof Omit<Company, 'foundedAt'>>(k: K, v: Omit<Company, 'foundedAt'>[K]) =>
+  const set = <K extends keyof Omit<Company, 'foundedAt' | 'code'>>(k: K, v: Omit<Company, 'foundedAt' | 'code'>[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const valid = form.name.trim() && form.ceoName.trim() && form.ceoCharacterName.trim();
+  const valid =
+    form.name.trim() &&
+    form.ceoName.trim() &&
+    form.ceoCharacterName.trim() &&
+    form.ceoPhone.trim() &&
+    form.businessRegNo.trim() &&
+    form.ceoEmail.trim();
 
   return (
     <Wizard step={2} total={6} title="회사 창립" flavor="길드 창설 문서 작성">
@@ -80,10 +86,37 @@ function CompanyForm() {
             onChange={(e) => set('monthlyBudgetUsd', Math.max(1, Number(e.target.value) || 0))}
           />
         </Field>
+        <Field label="대표 전화번호" hint="사업자 개업 시 필수 입력">
+          <TextInput value={form.ceoPhone} onChange={(e) => set('ceoPhone', e.target.value)} />
+        </Field>
+        <Field label="사업자등록번호" hint="사업자 개업 시 필수 입력">
+          <TextInput value={form.businessRegNo} onChange={(e) => set('businessRegNo', e.target.value)} />
+        </Field>
+        <Field label="대표 이메일" hint="사업자 개업 시 필수 입력">
+          <TextInput type="email" value={form.ceoEmail} onChange={(e) => set('ceoEmail', e.target.value)} />
+        </Field>
         <div className="sm:col-span-2">
           <Field label="회사의 첫 번째 목표">
             <TextArea rows={2} value={form.firstGoal} onChange={(e) => set('firstGoal', e.target.value)} />
           </Field>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <SectionTitle>대표 성별</SectionTitle>
+        <div className="flex gap-2">
+          {(['male', 'female'] as CeoGender[]).map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => set('ceoGender', g)}
+              className={`rounded-lg border px-4 py-1.5 text-sm transition-colors ${
+                form.ceoGender === g ? 'border-gold bg-stone-800/70 text-gold' : 'border-stone-700 text-stone-300 hover:border-stone-500'
+              }`}
+            >
+              {g === 'male' ? '남성' : '여성'}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -100,7 +133,7 @@ function CompanyForm() {
               }`}
             >
               <svg viewBox="0 0 24 28" className="h-14 w-12">
-                <CharacterSprite palette={a.palette} sigil="♛" state="idle" jobClass="sovereign" />
+                <CharacterSprite palette={a.palette} sigil="♛" state="idle" jobClass="sovereign" gender={form.ceoGender} />
               </svg>
               <span className="text-xs text-stone-200">{a.label}</span>
               <span className="text-[10px] text-stone-500">{a.desc}</span>

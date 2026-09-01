@@ -14,12 +14,14 @@ import FirstMissionBriefing from '@/components/onboarding/FirstMissionBriefing';
 import OfficeCanvas from '@/components/office/OfficeCanvas';
 import EmployeePanel from '@/components/panels/EmployeePanel';
 import MissionBoard from '@/components/missions/MissionBoard';
+import RelationshipGraph from '@/components/graph/RelationshipGraph';
 import ApprovalCenter from '@/components/approvals/ApprovalCenter';
 import CostDashboard from '@/components/cost/CostDashboard';
 import AuditLog from '@/components/audit/AuditLog';
 import { PeoplePanel, SettingsPanel } from '@/components/panels/SidePanels';
-import { Badge, Button, Modal } from '@/components/ui/primitives';
+import { Badge, Button, Modal, Notice } from '@/components/ui/primitives';
 import { AGENT_STATE_LABEL, money } from '@/lib/format';
+import type { HumanStaffRecord } from '@/types';
 
 /** 시뮬레이션 루프. requestAnimationFrame 으로 실제 경과 시간을 넘긴다. */
 function useEngine(active: boolean) {
@@ -48,6 +50,7 @@ export default function App() {
   const phase = useWorld((s) => s.phase);
   const toast = useWorld((s) => s.ui.toast);
   const setToast = useWorld((s) => s.setToast);
+  const humanStaff = useWorld((s) => s.humanStaff);
 
   // 오피스가 열린 뒤부터 시뮬레이션을 돌린다.
   useEngine(Boolean(session) && (phase === 'live' || phase === 'first_mission' || phase === 'interview'));
@@ -58,8 +61,12 @@ export default function App() {
     return () => clearTimeout(id);
   }, [toast, setToast]);
 
+  const staffRecord = session?.role === 'human_staff' && session.humanStaffId ? humanStaff[session.humanStaffId] : null;
+  const pending = Boolean(staffRecord && staffRecord.status !== 'approved');
+
   let body: React.ReactNode;
   if (!session) body = <LoginScreen />;
+  else if (pending) body = <StaffPendingScreen record={staffRecord!} />;
   else if (phase === 'founding' || phase === 'office_build' || phase === 'summon') body = <FoundingFlow />;
   else if (phase === 'interview') body = <InterviewFlow />;
   else if (phase === 'first_mission') body = <FirstMissionBriefing />;
@@ -67,7 +74,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      {session ? <AppHeader /> : null}
+      {session && !pending ? <AppHeader /> : null}
       {body}
       <AnimatePresence>
         {toast ? (
@@ -81,6 +88,47 @@ export default function App() {
           </motion.div>
         ) : null}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/* ──────────────────────── 사원 승인 대기 화면 ──────────────────────── */
+
+function StaffPendingScreen({ record }: { record: HumanStaffRecord }) {
+  const logout = useWorld((s) => s.logout);
+  const company = useWorld((s) => s.company);
+
+  const tone = record.status === 'rejected' || record.status === 'removed' ? 'warn' : 'info';
+  const heading =
+    record.status === 'pending'
+      ? '처리중 · 대표 승인 대기'
+      : record.status === 'rejected'
+        ? '가입 신청이 거절되었습니다'
+        : '회사에서 내보내졌습니다';
+  const detail =
+    record.status === 'pending'
+      ? `${company?.name ?? '회사'}의 대표가 가입 신청을 검토하고 있습니다. 승인되면 자동으로 오피스에 입장합니다.`
+      : record.status === 'rejected'
+        ? '회사 대표에게 문의하시거나, 다른 이메일로 다시 신청해 주세요.'
+        : '재입장은 대표만 처리할 수 있습니다. 회사 대표에게 문의하세요.';
+
+  return (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <div className="w-full max-w-md panel p-6 text-center">
+        <div className="mb-3 text-4xl">⏳</div>
+        <h1 className="rune-title text-xl">{heading}</h1>
+        <p className="mt-3 text-sm text-stone-300">
+          {record.name} <span className="text-stone-500">· {record.email}</span>
+        </p>
+        <div className="mt-4">
+          <Notice tone={tone}>{detail}</Notice>
+        </div>
+        <div className="mt-5">
+          <Button variant="ghost" onClick={logout}>
+            로그아웃
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -141,6 +189,7 @@ const PANELS = [
   ['approvals', '대표 승인 센터'],
   ['cost', '비용 · API 사용량'],
   ['people', '조직 · 지사'],
+  ['graph', '관계도'],
   ['audit', '감사 로그'],
   ['settings', '설정 · 보안'],
 ] as const;
@@ -255,6 +304,7 @@ function OfficeScreen() {
           {openPanel === 'approvals' ? <ApprovalCenter /> : null}
           {openPanel === 'cost' ? <CostDashboard /> : null}
           {openPanel === 'people' ? <PeoplePanel /> : null}
+          {openPanel === 'graph' ? <RelationshipGraph /> : null}
           {openPanel === 'audit' ? <AuditLog /> : null}
           {openPanel === 'settings' ? <SettingsPanel /> : null}
         </Modal>

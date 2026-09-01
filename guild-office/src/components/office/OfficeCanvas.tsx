@@ -12,7 +12,7 @@
  */
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FURNITURE, OFFICE_H, OFFICE_W, ROOMS } from '@/data/seed';
+import { EMPLOYEE_APPEARANCES, FURNITURE, OFFICE_H, OFFICE_W, ROOMS } from '@/data/seed';
 import { GRID } from '@/data/world';
 import { useWorld } from '@/state/store';
 import CharacterSprite from '@/components/office/CharacterSprite';
@@ -114,11 +114,30 @@ function FurnitureTile({ x, y, room }: { x: number; y: number; room: RoomId }) {
   );
 }
 
+/** 휴게실(라운지) 안에서 출근한 인간 사원이 서 있는 자리들 — 실제 이동/경로탐색과 무관한 장식용 고정 좌표 */
+const HUMAN_LOUNGE_SPOTS = [
+  { x: 19.2, y: 14.6 },
+  { x: 21, y: 14.6 },
+  { x: 22.8, y: 14.6 },
+  { x: 19.2, y: 17.4 },
+  { x: 21, y: 17.4 },
+  { x: 22.8, y: 17.4 },
+];
+
+/** 미출근 인간 사원을 캠퍼스 바깥 시골 여백 한쪽 구석에 장식용으로 세워 둔다 — GRID/경로탐색과 무관 */
+const HUMAN_WAITING_SPOTS = [
+  { x: -1.6, y: OFFICE_H - 2 },
+  { x: -1.6, y: OFFICE_H - 3.4 },
+  { x: -1.6, y: OFFICE_H - 4.8 },
+  { x: -1.6, y: OFFICE_H - 6.2 },
+];
+
 export default function OfficeCanvas() {
   const employees = useWorld((s) => s.employees);
   const order = useWorld((s) => s.employeeOrder);
   const company = useWorld((s) => s.company);
   const chats = useWorld((s) => s.chats);
+  const humanStaff = useWorld((s) => s.humanStaff);
   const selectedId = useWorld((s) => s.ui.selectedEmployeeId);
   const select = useWorld((s) => s.selectEmployee);
   const sendToRoom = useWorld((s) => s.sendEmployeeToRoom);
@@ -141,6 +160,11 @@ export default function OfficeCanvas() {
     }
     sendToRoom(selectedId, roomId);
   };
+
+  // 인간 사원 — 승인된 인원만, 재택 근무는 지도에 그리지 않고 조직 패널에만 표시한다.
+  const approvedStaff = Object.values(humanStaff).filter((r) => r.status === 'approved');
+  const officeStaff = approvedStaff.filter((r) => r.workMode === 'office');
+  const waitingStaff = approvedStaff.filter((r) => r.workMode === 'not_started');
 
   // 가구 타일은 벽과 구분해서 칠하기 위해 따로 모아 둔다.
   const furnitureByKey = new Map<string, RoomId>();
@@ -372,6 +396,34 @@ export default function OfficeCanvas() {
               </g>
               <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34 + labelDy} text={`${emp.name} · ${label.game}`} />
               {line ? <SpeechBubble x={SPRITE_W / 2} y={-0.16} text={line.text} warn={line.warn} /> : null}
+            </g>
+          );
+        })}
+
+        {/* 인간 사원 — 출근: 휴게실 안 고정 자리. 장식용이며 AI 상태머신·경로탐색과 무관하다. */}
+        {officeStaff.map((r, i) => {
+          const a = EMPLOYEE_APPEARANCES[r.appearanceId];
+          const spot = HUMAN_LOUNGE_SPOTS[i % HUMAN_LOUNGE_SPOTS.length];
+          return (
+            <g key={r.id} transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`}>
+              <g transform={`scale(${SX} ${SY})`}>
+                <CharacterSprite palette={a.palette} sigil={a.sigil} state="idle" jobClass={a.jobClass} gender={a.gender} />
+              </g>
+              <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34} text={`${r.name} · 출근`} tone="#8fe0bb" />
+            </g>
+          );
+        })}
+
+        {/* 인간 사원 — 미출근: 캠퍼스 바깥 시골 여백 구석에 대기 상태로 세워 둔다. */}
+        {waitingStaff.map((r, i) => {
+          const a = EMPLOYEE_APPEARANCES[r.appearanceId];
+          const spot = HUMAN_WAITING_SPOTS[i % HUMAN_WAITING_SPOTS.length];
+          return (
+            <g key={r.id} transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`} opacity={0.55}>
+              <g transform={`scale(${SX} ${SY})`}>
+                <CharacterSprite palette={a.palette} sigil={a.sigil} state="idle" jobClass={a.jobClass} gender={a.gender} />
+              </g>
+              <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34} text={`${r.name} · 미출근`} tone="#8a8477" />
             </g>
           );
         })}
