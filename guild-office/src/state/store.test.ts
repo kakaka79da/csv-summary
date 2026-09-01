@@ -337,3 +337,80 @@ describe('개인 기억 (모델 무관)', () => {
     expect(prompt).toMatch(/업무 원칙/);
   });
 });
+
+describe('우선순위 회의 소집', () => {
+  it('자유 상태인 직원 전원이 회의 테이블로 모이고, 지시가 각자의 대화창에 전달된다', () => {
+    bootstrap();
+    const r = useWorld.getState().callPriorityMeeting('이번 주는 A 프로젝트를 최우선으로 진행합니다.');
+
+    expect(r.gathered.sort()).toEqual(['emp_admin', 'emp_engineer', 'emp_professor']);
+    expect(r.busy).toHaveLength(0);
+
+    for (const id of r.gathered) {
+      const e = emp(id);
+      expect(e.destinationRoom).toBe('meeting');
+      expect(e.state).toBe('walking');
+      expect(e.path.length).toBeGreaterThan(0);
+
+      const chat = useWorld.getState().chats[id] ?? [];
+      const order = chat.at(-1)!;
+      expect(order.from).toBe('ceo');
+      expect(order.kind).toBe('task_order');
+      expect(order.text).toContain('A 프로젝트를 최우선으로 진행합니다.');
+    }
+
+    // 실제로 걸어서 회의 테이블 근처(원탁 anchor)에 도착한다.
+    run(10, () => Object.values(useWorld.getState().employees).every((e) => e.path.length === 0));
+    for (const id of r.gathered) {
+      expect(emp(id).state).not.toBe('walking');
+    }
+  });
+
+  it('유료 작업 중인 직원은 강제로 끊지 않고 불참으로 분류한다', () => {
+    bootstrap();
+    connectAll(2, 40);
+    useWorld.getState().createFirstMission();
+    const missionId = useWorld.getState().missionOrder[0];
+
+    // 담당자가 작업 장소까지 걸어가서 실제로 일을 시작할 때까지 진행시킨다.
+    run(30, () => {
+      const m = useWorld.getState().missions[missionId];
+      const a = useWorld.getState().employees[m.steps[m.currentStepIndex].assigneeId];
+      return a.currentMissionId === missionId && a.state !== 'walking';
+    });
+
+    const before = useWorld.getState().missions[missionId];
+    const workingId = before.steps[before.currentStepIndex].assigneeId;
+    expect(useWorld.getState().employees[workingId].currentMissionId).toBe(missionId);
+    expect(useWorld.getState().employees[workingId].state).not.toBe('walking');
+
+    const r = useWorld.getState().callPriorityMeeting('');
+    expect(r.busy).toContain(workingId);
+    expect(r.gathered).not.toContain(workingId);
+
+    // 업무 중이던 직원은 미션도, 상태도 그대로다 — 회의 소집이 진행 중인 유료 작업을 끊지 않는다.
+    expect(useWorld.getState().employees[workingId].currentMissionId).toBe(missionId);
+    expect(useWorld.getState().missions[missionId].status).not.toBe('cancelled');
+  });
+
+  it('휴직 중인 직원은 소집되지 않는다', () => {
+    bootstrap();
+    connectAll();
+    useWorld.getState().requestLeave('emp_engineer');
+    const leaveApproval = useWorld.getState().approvals.find((a) => a.kind === 'leave')!;
+    useWorld.getState().decideApproval(leaveApproval.id, 'approved');
+    expect(emp('emp_engineer').onLeave).toBe(true);
+
+    const r = useWorld.getState().callPriorityMeeting('전체 공지');
+    expect(r.busy).toContain('emp_engineer');
+    expect(r.gathered).not.toContain('emp_engineer');
+  });
+
+  it('지시 없이 소집하면 집합 안내만 전달된다', () => {
+    bootstrap();
+    useWorld.getState().callPriorityMeeting('   ');
+    const chat = useWorld.getState().chats.emp_admin!.at(-1)!;
+    expect(chat.kind).toBe('system');
+    expect(chat.text).toContain('회의 테이블로 집합');
+  });
+});

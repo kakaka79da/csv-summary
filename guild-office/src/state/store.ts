@@ -135,6 +135,15 @@ export interface WorldActions {
   requestLeave: (employeeId: string) => void;
   requestReturn: (employeeId: string) => void;
 
+  /**
+   * 회의 테이블 더블클릭 → 우선순위 회의 소집.
+   * 지금 자유 상태(대기/휴식/낚시 등)인 직원만 회의 테이블로 모은다.
+   * 유료 작업 중인 직원은 억지로 중단시키지 않고 "불참"으로 분류한다 —
+   * 승인 없이 진행 중인 유료 작업을 끊는 것 자체가 이 앱의 안전 규칙과 충돌하기 때문이다.
+   * 회의 자체는 비용이 발생하지 않으므로 승인 게이트를 거치지 않는다.
+   */
+  callPriorityMeeting: (instruction: string) => { gathered: string[]; busy: string[] };
+
   sendChat: (employeeId: string, text: string) => void;
 
   /** 기억 한 줄을 append 한다 (교훈/사건/선호/정정). 기존 기억은 지우지 않는다. */
@@ -822,6 +831,67 @@ export const useWorld = create<Store>()(
           decidedAt: null,
         };
         set({ approvals: [approval, ...s.approvals], audit: audit(s.audit, emp.name, '복귀 요청', emp.name, '') });
+      },
+
+      /* ── 회의 소집 ────────────────────────────────────────────────── */
+      callPriorityMeeting: (instruction) => {
+        const s = get();
+        if (!s.company) return { gathered: [], busy: [] };
+        const text = instruction.trim();
+
+        const gathered: string[] = [];
+        const busy: string[] = [];
+        const employees = { ...s.employees };
+        let chats = s.chats;
+
+        for (const id of s.employeeOrder) {
+          const emp = employees[id];
+          if (!emp) continue;
+
+          // 이미 걸어가는 중(업무 배정 없이)이면 상태 전이 없이 목적지만 바꾼다.
+          // 그 외에는 STOP/이동 전이가 열려 있는 자유 상태에서만 소집에 응한다.
+          const alreadyFreelyWalking = emp.state === 'walking' && !emp.currentMissionId;
+          if (emp.onLeave || !(alreadyFreelyWalking || canAcceptWork(emp.state))) {
+            busy.push(id);
+            continue;
+          }
+
+          const draft: Employee = { ...emp, pos: { ...emp.pos }, path: [...emp.path] };
+          routeTo(draft, 'meeting');
+          if (!alreadyFreelyWalking) applyAgentEvent(draft, { type: 'GO' });
+          draft.lastIdleAt = Date.now();
+          employees[id] = draft;
+          gathered.push(id);
+
+          chats = pushMessage(
+            chats,
+            id,
+            'ceo',
+            text ? 'task_order' : 'system',
+            text ? `[우선순위 회의] ${text}` : '[우선순위 회의] 회의 테이블로 집합해 주세요.',
+          );
+        }
+
+        set({
+          employees,
+          chats,
+          audit: audit(
+            s.audit,
+            s.company.ceoName,
+            '우선순위 회의 소집',
+            '회의 테이블',
+            `${gathered.length}명 집합${busy.length ? ` · ${busy.length}명 업무 중이라 불참` : ''}${text ? ` · "${text}"` : ''}`,
+          ),
+          ui: {
+            ...s.ui,
+            toast:
+              gathered.length > 0
+                ? `${gathered.length}명이 회의 테이블로 모입니다.${busy.length ? ` (${busy.length}명은 업무 중이라 나중에 합류)` : ''}`
+                : '지금 모일 수 있는 직원이 없습니다 — 전원 업무 중이거나 휴직 중입니다.',
+          },
+        });
+
+        return { gathered, busy };
       },
 
       /* ── UI ───────────────────────────────────────────────────────── */

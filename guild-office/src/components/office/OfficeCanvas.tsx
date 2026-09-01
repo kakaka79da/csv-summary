@@ -10,11 +10,13 @@
  * 그리는 순서: 시골 배경 → 자갈길 → 방 데크 → 방 소품 → 화단/울타리(벽) →
  *              가구 → 출입구 → 방 이름 → 캐릭터.
  */
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FURNITURE, OFFICE_H, OFFICE_W, ROOMS } from '@/data/seed';
 import { GRID } from '@/data/world';
 import { useWorld } from '@/state/store';
 import CharacterSprite from '@/components/office/CharacterSprite';
+import PriorityMeetingModal from '@/components/office/PriorityMeetingModal';
 import {
   Countryside,
   FenceTile,
@@ -87,6 +89,8 @@ export default function OfficeCanvas() {
   const company = useWorld((s) => s.company);
   const selectedId = useWorld((s) => s.ui.selectedEmployeeId);
   const select = useWorld((s) => s.selectEmployee);
+  const [meetingOpen, setMeetingOpen] = useState(false);
+  const meetingRoom = ROOMS.find((r) => r.id === 'meeting')!;
 
   // 가구 타일은 벽과 구분해서 칠하기 위해 따로 모아 둔다.
   const furnitureByKey = new Map<string, RoomId>();
@@ -217,6 +221,38 @@ export default function OfficeCanvas() {
           );
         })}
 
+        {/* 회의 테이블 — 더블클릭하면 우선순위 회의 소집. 벽·가구·표지판보다 위,
+            캐릭터보다는 아래에 그려서 방 어디를 눌러도 걸리고, 캐릭터 클릭은 그대로 우선한다. */}
+        <g
+          onDoubleClick={() => setMeetingOpen(true)}
+          style={{ cursor: 'pointer' }}
+          role="button"
+          aria-label="더블클릭하여 우선순위 회의 소집"
+        >
+          <title>더블클릭 — 우선순위 회의 소집 (지금 자유 상태인 직원을 모읍니다)</title>
+          <rect
+            x={meetingRoom.rect.x}
+            y={meetingRoom.rect.y}
+            width={meetingRoom.rect.w}
+            height={meetingRoom.rect.h}
+            fill="transparent"
+          />
+          <motion.rect
+            x={meetingRoom.rect.x + 0.15}
+            y={meetingRoom.rect.y + 0.15}
+            width={meetingRoom.rect.w - 0.3}
+            height={meetingRoom.rect.h - 0.3}
+            rx={0.3}
+            fill="none"
+            stroke="#ffd980"
+            strokeWidth={0.06}
+            strokeDasharray="0.3 0.22"
+            pointerEvents="none"
+            animate={{ opacity: [0.18, 0.5, 0.18] }}
+            transition={{ duration: 2.4, repeat: Infinity }}
+          />
+        </g>
+
         {/* 대표 캐릭터 (고정 위치) */}
         {company ? (
           <g transform={`translate(${CEO_SPOT.x - SPRITE_W / 2}, ${CEO_SPOT.y - SPRITE_H + 0.5})`}>
@@ -292,7 +328,10 @@ export default function OfficeCanvas() {
           자갈길 = 이동 경로
         </span>
         <span>캐릭터 이름표의 뒷부분은 현재 상태이며, 정확한 의미는 직원 패널에서 확인할 수 있습니다.</span>
+        <span>회의 테이블을 더블클릭하면 우선순위 회의를 소집할 수 있습니다.</span>
       </div>
+
+      {meetingOpen ? <PriorityMeetingModal onClose={() => setMeetingOpen(false)} /> : null}
     </div>
   );
 }
