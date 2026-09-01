@@ -26,7 +26,7 @@ import {
   SceneryDefs,
 } from '@/components/office/scenery';
 import { AGENT_STATE_LABEL } from '@/lib/format';
-import type { Company, RoomId } from '@/types';
+import type { Company, Message, RoomId } from '@/types';
 
 const SPRITE_W = 1.5;
 const SPRITE_H = 1.8;
@@ -34,6 +34,37 @@ const SX = SPRITE_W / 24;
 const SY = SPRITE_H / 28;
 /** 캠퍼스 바깥으로 보여 줄 시골 풍경의 여백 (타일) */
 const MARGIN = 3;
+
+/** 말풍선이 떠 있는 시간(ms). 이 시간이 지난 대사는 더 이상 보여주지 않는다. */
+export const BUBBLE_MS = 7000;
+
+/** 말풍선용으로 한 줄, 짧게 자른다. */
+export function bubbleText(text: string, max = 34): string {
+  const oneLine = text.replace(/\s*\n+\s*/g, ' ').trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
+}
+
+/** 이 직원 스레드에서 가장 최근에 "직원 자신"이 남긴 대사(최근 것만). */
+export function ownBubble(msgs: Message[] | undefined, now: number): { text: string; warn: boolean } | null {
+  if (!msgs || msgs.length === 0) return null;
+  const last = msgs[msgs.length - 1];
+  if (last.from === 'ceo' || now - last.ts > BUBBLE_MS) return null;
+  return { text: bubbleText(last.text), warn: last.kind === 'warning' };
+}
+
+/** 모든 직원 스레드를 통틀어 대표가 가장 최근에 남긴 대사. */
+export function ceoBubble(chats: Record<string, Message[]>, ids: string[], now: number): string | null {
+  let best: Message | null = null;
+  for (const id of ids) {
+    const arr = chats[id];
+    if (!arr || arr.length === 0) continue;
+    const last = arr[arr.length - 1];
+    if (last.from !== 'ceo') continue;
+    if (!best || last.ts > best.ts) best = last;
+  }
+  if (!best || now - best.ts > BUBBLE_MS) return null;
+  return bubbleText(best.text);
+}
 
 /** 대표 캐릭터가 서는 자리 (집무실 안, 책상 오른쪽) */
 const CEO_SPOT = { x: 7.4, y: 4.2 };
@@ -87,11 +118,17 @@ export default function OfficeCanvas() {
   const employees = useWorld((s) => s.employees);
   const order = useWorld((s) => s.employeeOrder);
   const company = useWorld((s) => s.company);
+  const chats = useWorld((s) => s.chats);
   const selectedId = useWorld((s) => s.ui.selectedEmployeeId);
   const select = useWorld((s) => s.selectEmployee);
   const sendToRoom = useWorld((s) => s.sendEmployeeToRoom);
   const setToast = useWorld((s) => s.setToast);
   const [meetingOpen, setMeetingOpen] = useState(false);
+
+  // 대사 말풍선은 실제 벽시계 시각 기준으로 사라지므로 렌더링 때마다 다시 계산한다.
+  // 시뮬레이션이 도는 동안은 매 프레임 다시 그려지므로 자연스럽게 옅어지듯 사라진다.
+  const now = Date.now();
+  const ceoLine = company ? ceoBubble(chats, order, now) : null;
 
   const handleRoomDoubleClick = (roomId: RoomId) => {
     if (roomId === 'meeting') {
@@ -289,6 +326,7 @@ export default function OfficeCanvas() {
               />
             </g>
             <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34} text={`${company.ceoCharacterName} · 대표`} tone="#f0cd85" />
+            {ceoLine ? <SpeechBubble x={SPRITE_W / 2} y={-0.16} text={ceoLine} /> : null}
           </g>
         ) : null}
 
@@ -303,6 +341,7 @@ export default function OfficeCanvas() {
           const nudge = (slot - 1) * 0.8;
           // 같은 칸에 모여 있어도 이름표가 겹치지 않도록 직원마다 다른 높이에 둔다
           const labelDy = slot * 0.62;
+          const line = ownBubble(chats[id], now);
           return (
             // 위치는 transform 속성으로 직접 지정한다.
             // framer-motion 의 x/y 는 SVG 에서 CSS 픽셀로 해석되어 viewBox 단위와 어긋난다.
@@ -332,6 +371,7 @@ export default function OfficeCanvas() {
                 />
               </g>
               <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34 + labelDy} text={`${emp.name} · ${label.game}`} />
+              {line ? <SpeechBubble x={SPRITE_W / 2} y={-0.16} text={line.text} warn={line.warn} /> : null}
             </g>
           );
         })}
@@ -358,6 +398,27 @@ export default function OfficeCanvas() {
 
       {meetingOpen ? <PriorityMeetingModal onClose={() => setMeetingOpen(false)} /> : null}
     </div>
+  );
+}
+
+/**
+ * 대사 말풍선. 캐릭터 머리 위에 뜬다. 실제 상태와는 무관한 연출용 텍스트이며,
+ * 정확한 대화 내용은 항상 직원 패널의 "1:1 대화" 탭에 그대로 남아 있다.
+ */
+function SpeechBubble({ x, y, text, warn = false }: { x: number; y: number; text: string; warn?: boolean }) {
+  const w = Math.max(1.5, Math.min(5.6, text.length * 0.155 + 0.55));
+  const h = 0.56;
+  const top = y - h;
+  const stroke = warn ? '#d8604f' : '#241a12';
+  return (
+    <g pointerEvents="none">
+      <rect x={x - w / 2} y={top} width={w} height={h} rx={0.16} fill="#f4ecd8" stroke={stroke} strokeWidth={0.045} />
+      <path d={`M ${x - 0.13} ${y - 0.01} L ${x + 0.13} ${y - 0.01} L ${x} ${y + 0.2} Z`} fill="#f4ecd8" stroke={stroke} strokeWidth={0.045} />
+      <rect x={x - 0.13} y={y - 0.03} width={0.26} height={0.05} fill="#f4ecd8" />
+      <text x={x} y={top + h / 2 + 0.1} textAnchor="middle" fontSize={0.24} fill="#241a12">
+        {text}
+      </text>
+    </g>
   );
 }
 
