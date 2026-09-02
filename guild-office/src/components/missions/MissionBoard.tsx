@@ -189,10 +189,10 @@ function MissionCard({ mission }: { mission: Mission }) {
       ) : null}
 
       <div className="mt-3 flex flex-wrap justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={exportCsv}>
+        <Button size="sm" variant="ghost" hint="이 미션의 단계별 담당자·상태·비용을 CSV 파일로 저장합니다." onClick={exportCsv}>
           CSV 내보내기
         </Button>
-        <Button size="sm" variant="ghost" onClick={exportReport}>
+        <Button size="sm" variant="ghost" hint="목표·참여자·단계별 진행을 정리한 보고서를 마크다운 파일로 저장합니다." onClick={exportReport}>
           보고서 내보내기
         </Button>
         {mission.status === 'review' ? (

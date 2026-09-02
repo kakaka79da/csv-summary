@@ -1,6 +1,50 @@
 /** 공용 UI 조각. 도메인 로직은 넣지 않는다. */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
+
+/**
+ * 마우스를 올리면 바로 뜨는 설명 말풍선.
+ *
+ * 브라우저 기본 `title` 속성은 1초 넘게 기다려야 뜨고 스타일도 없어서 "설명이
+ * 안 나온다"고 느끼기 쉽다. 그래서 직접 그린다 — 비활성(disabled) 버튼 위에서도
+ * 떠야 하므로 이벤트는 버튼이 아니라 감싸는 span 이 받는다.
+ */
+export function Tooltip({
+  text,
+  placement = 'top',
+  full,
+  children,
+}: {
+  text?: string;
+  placement?: 'top' | 'bottom';
+  /** 감싸는 요소를 가로로 꽉 채운다 (full 버튼을 감쌀 때 레이아웃이 깨지지 않도록). */
+  full?: boolean;
+  children: ReactNode;
+}) {
+  const [show, setShow] = useState(false);
+  if (!text) return <>{children}</>;
+
+  const pos = placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5';
+  return (
+    <span
+      className={`relative inline-flex ${full ? 'w-full' : ''}`}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onFocusCapture={() => setShow(true)}
+      onBlurCapture={() => setShow(false)}
+    >
+      {children}
+      {show ? (
+        <span
+          role="tooltip"
+          className={`pointer-events-none absolute left-1/2 z-[60] w-max max-w-[16rem] -translate-x-1/2 whitespace-normal rounded-lg border border-stone-600 bg-stone-950/95 px-2.5 py-1.5 text-left text-[11px] font-normal leading-relaxed text-stone-200 shadow-rune ${pos}`}
+        >
+          {text}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 export function Button({
   children,
@@ -10,6 +54,8 @@ export function Button({
   full,
   size = 'md',
   title,
+  hint,
+  hintPlacement = 'top',
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -18,6 +64,9 @@ export function Button({
   full?: boolean;
   size?: 'sm' | 'md';
   title?: string;
+  /** 마우스를 올리면 뜨는 설명. title 과 달리 바로 뜨고 앱 스타일을 따른다. */
+  hint?: string;
+  hintPlacement?: 'top' | 'bottom';
 }) {
   const base =
     'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40';
@@ -28,16 +77,22 @@ export function Button({
     danger: 'bg-ember text-stone-950 hover:bg-ember-soft',
     quiet: 'text-stone-400 hover:text-stone-100',
   }[variant];
-  return (
+  const button = (
     <button
       type="button"
-      title={title}
+      title={hint ? undefined : title}
       disabled={disabled}
       onClick={onClick}
       className={`${base} ${sizes} ${variants} ${full ? 'w-full' : ''}`}
     >
       {children}
     </button>
+  );
+  if (!hint) return button;
+  return (
+    <Tooltip text={hint} placement={hintPlacement} full={full}>
+      {button}
+    </Tooltip>
   );
 }
 

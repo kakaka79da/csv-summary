@@ -105,7 +105,12 @@ function StaffRow({ record, isSelf }: { record: HumanStaffRecord; isSelf: boolea
             {record.currentTaskUpdatedAt ? <span className="ml-1 text-stone-600">· {clock(record.currentTaskUpdatedAt)}</span> : null}
           </span>
           {isSelf ? (
-            <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              hint="본인이 지금 하고 있는 일을 한 줄로 남깁니다. 본인 기록만 수정할 수 있습니다."
+              onClick={() => setEditing(true)}
+            >
               수정
             </Button>
           ) : null}

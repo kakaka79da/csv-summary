@@ -15,6 +15,7 @@ import type {
   Room,
   RoomId,
   Vec2,
+  WorkMode,
 } from '@/types';
 
 export const OFFICE_W = 32;
@@ -472,3 +473,44 @@ export const EMPLOYEE_APPEARANCES: Record<
 };
 
 export const EMPLOYEE_APPEARANCE_IDS = Object.keys(EMPLOYEE_APPEARANCES) as EmployeeAppearanceId[];
+
+/**
+ * 시뮬레이션(자유 테스트) 모드에서만 미리 넣는 가짜 인간 사원.
+ *
+ * 실제 가입 흐름으로는 사원이 한 명도 없는 상태로 시작하므로, 근태 3종
+ * (미출근·출근·재택)이 화면에서 어떻게 보이는지 바로 확인할 수 없다. 테스트를
+ * 위해 세 상태를 하나씩 채워 둔다 — 이메일에 test 를 붙여 실제 사원과 구별한다.
+ */
+export const SIMULATION_HUMAN_STAFF: Array<{
+  name: string;
+  email: string;
+  role: string;
+  appearanceId: EmployeeAppearanceId;
+  workMode: WorkMode;
+  currentTaskNote: string | null;
+}> = [
+  {
+    name: '박서준',
+    email: 'test-seojun@example.com',
+    role: '마케팅',
+    appearanceId: 'ranger',
+    workMode: 'not_started',
+    currentTaskNote: null,
+  },
+  {
+    name: '이하늘',
+    email: 'test-haneul@example.com',
+    role: '디자인',
+    appearanceId: 'scribe',
+    workMode: 'office',
+    currentTaskNote: '신규 배너 시안 3종 작업 중',
+  },
+  {
+    name: '정우진',
+    email: 'test-woojin@example.com',
+    role: '개발',
+    appearanceId: 'engineer',
+    workMode: 'remote',
+    currentTaskNote: '재택 — 결제 모듈 리팩터링',
+  },
+];

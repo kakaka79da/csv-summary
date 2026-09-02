@@ -34,6 +34,8 @@ const SX = SPRITE_W / 24;
 const SY = SPRITE_H / 28;
 /** 캠퍼스 바깥으로 보여 줄 시골 풍경의 여백 (타일) */
 const MARGIN = 3;
+/** 오른쪽은 출근길과 이름표가 들어가야 해서 더 넓게 잡는다. */
+const RIGHT_MARGIN = 6;
 
 /** 말풍선이 떠 있는 시간(ms). 이 시간이 지난 대사는 더 이상 보여주지 않는다. */
 export const BUBBLE_MS = 7000;
@@ -124,12 +126,16 @@ const HUMAN_LOUNGE_SPOTS = [
   { x: 22.8, y: 17.4 },
 ];
 
-/** 미출근 인간 사원을 캠퍼스 바깥 시골 여백 한쪽 구석에 장식용으로 세워 둔다 — GRID/경로탐색과 무관 */
+/**
+ * 아직 출근하지 않은(not_started) 인간 사원은 캠퍼스 오른쪽 "출근길" 위에 세워 둔다 —
+ * 아직 사무실 안으로 들어오지 않았다는 뜻이다. GRID/경로탐색과는 무관한 장식용 좌표다.
+ */
 const HUMAN_WAITING_SPOTS = [
-  { x: -1.6, y: OFFICE_H - 2 },
-  { x: -1.6, y: OFFICE_H - 3.4 },
-  { x: -1.6, y: OFFICE_H - 4.8 },
-  { x: -1.6, y: OFFICE_H - 6.2 },
+  { x: OFFICE_W + 1.65, y: 4 },
+  { x: OFFICE_W + 1.65, y: 7.2 },
+  { x: OFFICE_W + 1.65, y: 10.4 },
+  { x: OFFICE_W + 1.65, y: 13.6 },
+  { x: OFFICE_W + 1.65, y: 16.8 },
 ];
 
 export default function OfficeCanvas() {
@@ -184,7 +190,7 @@ export default function OfficeCanvas() {
   return (
     <div className="panel overflow-hidden">
       <svg
-        viewBox={`${-MARGIN} ${-MARGIN} ${OFFICE_W + MARGIN * 2} ${OFFICE_H + MARGIN * 2}`}
+        viewBox={`${-MARGIN} ${-MARGIN} ${OFFICE_W + MARGIN + RIGHT_MARGIN} ${OFFICE_H + MARGIN * 2}`}
         className="block w-full"
         role="img"
         aria-label="오피스 평면도"
@@ -192,7 +198,7 @@ export default function OfficeCanvas() {
         <SceneryDefs />
 
         {/* 바깥 시골 풍경 */}
-        <Countryside w={OFFICE_W} h={OFFICE_H} margin={MARGIN} />
+        <Countryside w={OFFICE_W} h={OFFICE_H} margin={MARGIN} rightMargin={RIGHT_MARGIN} />
 
         {/* 캠퍼스 바닥 = 자갈길 */}
         <rect x={0} y={0} width={OFFICE_W} height={OFFICE_H} fill="url(#gravel)" />
@@ -414,12 +420,26 @@ export default function OfficeCanvas() {
           );
         })}
 
-        {/* 인간 사원 — 미출근: 캠퍼스 바깥 시골 여백 구석에 대기 상태로 세워 둔다. */}
+        {/* 출근길 표지 — 오른쪽 세로 길의 정체를 밝혀 준다. */}
+        {waitingStaff.length > 0 ? (
+          <text
+            x={OFFICE_W + 1.65}
+            y={1.4}
+            textAnchor="middle"
+            fontSize={0.5}
+            fill="#d8c9a8"
+            opacity={0.9}
+          >
+            출근길
+          </text>
+        ) : null}
+
+        {/* 인간 사원 — 미출근: 아직 사무실에 들어오지 않았으므로 오른쪽 출근길 위에 세워 둔다. */}
         {waitingStaff.map((r, i) => {
           const a = EMPLOYEE_APPEARANCES[r.appearanceId];
           const spot = HUMAN_WAITING_SPOTS[i % HUMAN_WAITING_SPOTS.length];
           return (
-            <g key={r.id} transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`} opacity={0.55}>
+            <g key={r.id} transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`} opacity={0.7}>
               <g transform={`scale(${SX} ${SY})`}>
                 <CharacterSprite palette={a.palette} sigil={a.sigil} state="idle" jobClass={a.jobClass} gender={a.gender} />
               </g>

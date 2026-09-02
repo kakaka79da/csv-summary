@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useWorld } from '@/state/store';
 import { clock, money } from '@/lib/format';
-import { Badge, Button, Notice, SectionTitle, TextArea, TextInput } from '@/components/ui/primitives';
+import { Badge, Button, Notice, SectionTitle, TextArea, TextInput, Tooltip } from '@/components/ui/primitives';
 import { PlatformMakerSetting } from '@/components/panels/SidePanels';
 import AuditLog from '@/components/audit/AuditLog';
 import EasterEggCredit from '@/components/auth/EasterEggCredit';
@@ -49,9 +49,12 @@ export default function AdminDashboard() {
             로그인: <span className="text-stone-300">{session?.accountName}</span>
           </span>
           {pendingApplications.length + pendingDeletions.length > 0 ? (
-            <span title={`회사 창립 신청 ${pendingApplications.length}건 + 회사 삭제 요청 ${pendingDeletions.length}건`}>
+            <Tooltip
+              placement="bottom"
+              text={`회사 창립 신청 ${pendingApplications.length}건 + 회사 삭제 요청 ${pendingDeletions.length}건`}
+            >
               <Badge tone="gold">처리 대기 {pendingApplications.length + pendingDeletions.length}</Badge>
-            </span>
+            </Tooltip>
           ) : null}
           <div className="ml-auto flex items-center gap-3">
             <EasterEggCredit makerName={makerName} />
@@ -173,12 +176,11 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
       <div className="mb-2 flex items-center gap-1.5">
         <SectionTitle className="mb-0">{title}</SectionTitle>
         {hint ? (
-          <span
-            title={hint}
-            className="grid h-3.5 w-3.5 shrink-0 cursor-help place-items-center rounded-full border border-stone-600 text-[9px] leading-none text-stone-500"
-          >
-            i
-          </span>
+          <Tooltip text={hint} placement="bottom">
+            <span className="grid h-3.5 w-3.5 shrink-0 cursor-help place-items-center rounded-full border border-stone-600 text-[9px] leading-none text-stone-500">
+              i
+            </span>
+          </Tooltip>
         ) : null}
       </div>
       {children}
@@ -188,8 +190,10 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 function Row({ k, v, hint }: { k: string; v: string; hint?: string }) {
   return (
-    <div className="flex justify-between gap-2" title={hint}>
-      <span className={`shrink-0 text-stone-500 ${hint ? 'cursor-help underline decoration-dotted' : ''}`}>{k}</span>
+    <div className="flex justify-between gap-2">
+      <Tooltip text={hint} placement="bottom">
+        <span className={`shrink-0 text-stone-500 ${hint ? 'cursor-help underline decoration-dotted' : ''}`}>{k}</span>
+      </Tooltip>
       <span className="truncate text-right text-stone-300">{v}</span>
     </div>
   );
@@ -226,7 +230,7 @@ function ApplicationCard({ application }: { application: CompanyApplication }) {
       <div className="mt-2 flex justify-end gap-2">
         <Button
           size="sm"
-          title="실제 Company 를 생성하고, 대표가 다시 로그인하면 사무실 건설 단계부터 이어집니다."
+          hint="실제 Company 를 생성하고, 대표가 다시 로그인하면 사무실 건설 단계부터 이어집니다."
           onClick={() => decide(application.id, 'approved', note || undefined)}
         >
           창립 승인
@@ -234,7 +238,7 @@ function ApplicationCard({ application }: { application: CompanyApplication }) {
         <Button
           size="sm"
           variant="danger"
-          title="회사가 만들어지지 않습니다. 대표 화면에 거절 사유(메모)가 표시됩니다."
+          hint="회사가 만들어지지 않습니다. 대표 화면에 거절 사유(메모)가 표시됩니다."
           onClick={() => decide(application.id, 'rejected', note || undefined)}
         >
           거절
@@ -263,12 +267,12 @@ function DeletionCard({ approval }: { approval: Approval }) {
         <Button
           size="sm"
           variant="danger"
-          title="되돌릴 수 없습니다 — 회사 데이터를 지우고 요약만 아카이브에 남깁니다."
+          hint="되돌릴 수 없습니다 — 회사 데이터를 지우고 요약만 아카이브에 남깁니다."
           onClick={() => decide(approval.id, 'approved', note || undefined)}
         >
           삭제 승인
         </Button>
-        <Button size="sm" variant="ghost" title="회사는 그대로 유지됩니다." onClick={() => decide(approval.id, 'rejected', note || undefined)}>
+        <Button size="sm" variant="ghost" hint="회사는 그대로 유지됩니다." onClick={() => decide(approval.id, 'rejected', note || undefined)}>
           거절
         </Button>
       </div>

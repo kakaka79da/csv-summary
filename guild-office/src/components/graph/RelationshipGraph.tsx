@@ -102,7 +102,13 @@ export default function RelationshipGraph() {
             </span>
           ))}
         </div>
-        <Button size="sm" variant="ghost" disabled={edges.length === 0} onClick={exportEdgesCsv}>
+        <Button
+          size="sm"
+          variant="ghost"
+          hint="그래프에 그려진 모든 관계(관리·소유·참여·인계)를 CSV 파일로 저장합니다."
+          disabled={edges.length === 0}
+          onClick={exportEdgesCsv}
+        >
           연결 목록 CSV 내보내기
         </Button>
       </div>

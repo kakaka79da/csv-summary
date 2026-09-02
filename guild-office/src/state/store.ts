@@ -16,6 +16,7 @@ import {
   COMPANY_DEFAULTS,
   GREETINGS,
   PLATFORM_MAKER,
+  SIMULATION_HUMAN_STAFF,
   WALK_SPEED,
   createEmployee,
   findModel,
@@ -1570,9 +1571,42 @@ export const useWorld = create<Store>()(
             get().buildOffice();
           }
           if (Object.keys(get().employees).length < 3) get().summonEmployees();
+
+          // 근태 3종(미출근·출근·재택)이 화면에서 어떻게 보이는지 바로 확인할 수 있도록
+          // 가짜 인간 사원을 채워 둔다. 실제 가입 흐름으로 만든 사원이 이미 있으면 건드리지 않는다.
+          const s1 = get();
+          let humanStaff = s1.humanStaff;
+          if (Object.keys(humanStaff).length === 0) {
+            const now = Date.now();
+            const seeded: Record<string, HumanStaffRecord> = {};
+            for (const spec of SIMULATION_HUMAN_STAFF) {
+              const staffId = nid('staff');
+              seeded[staffId] = {
+                id: staffId,
+                name: spec.name,
+                email: spec.email,
+                phone: null,
+                companyCode: s1.company?.code ?? '',
+                role: spec.role,
+                appearanceId: spec.appearanceId,
+                status: 'approved',
+                workMode: spec.workMode,
+                monthlySalaryUsd: 3000,
+                benefits: ['4대보험'],
+                currentTaskNote: spec.currentTaskNote,
+                currentTaskUpdatedAt: spec.currentTaskNote ? now : null,
+                requestedAt: now,
+                decidedAt: now,
+                decidedBy: s1.company?.ceoName ?? '대표',
+              };
+            }
+            humanStaff = seeded;
+          }
+
           const s2 = get();
           set({
             phase: 'live',
+            humanStaff,
             tutorial: { summoned: true, interviewsDone: true, firstMissionDone: true },
             simulationMode: true,
             audit: audit(

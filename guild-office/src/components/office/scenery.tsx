@@ -48,7 +48,18 @@ export const PALETTE = {
 /* ────────────────────── 바깥 시골 풍경 ─────────────────────────── */
 
 /** 캠퍼스 바깥 여백에 그리는 배경. viewBox 여백(-3 ~ w+3) 안에 들어간다. */
-export function Countryside({ w, h, margin }: { w: number; h: number; margin: number }) {
+export function Countryside({
+  w,
+  h,
+  margin,
+  rightMargin = margin,
+}: {
+  w: number;
+  h: number;
+  margin: number;
+  /** 출근길을 두기 위해 오른쪽만 더 넓게 쓸 때. 기본값은 margin 과 같다. */
+  rightMargin?: number;
+}) {
   const r = rng(20260901);
   const orchard: Array<{ x: number; y: number; s: number }> = [];
   // 위/아래 여백에 과수원 나무를 줄지어 심는다
@@ -67,13 +78,13 @@ export function Countryside({ w, h, margin }: { w: number; h: number; margin: nu
   // 좌/우 여백
   for (let i = 0; i < 12; i++) {
     orchard.push({ x: -margin + 0.9 + r() * 1.4, y: 1 + i * 1.6, s: 0.75 + r() * 0.3 });
-    orchard.push({ x: w + 1 + r() * 1.4, y: 1 + i * 1.6, s: 0.75 + r() * 0.3 });
+    orchard.push({ x: w + 3.1 + r() * 1.3, y: 1 + i * 1.6, s: 0.75 + r() * 0.3 });
   }
 
   return (
     <g>
       {/* 초지 */}
-      <rect x={-margin} y={-margin} width={w + margin * 2} height={h + margin * 2} fill={PALETTE.meadow} />
+      <rect x={-margin} y={-margin} width={w + margin + rightMargin} height={h + margin * 2} fill={PALETTE.meadow} />
       {/* 밭이랑 (위쪽 먼 배경) */}
       <g opacity={0.55}>
         {Array.from({ length: 14 }, (_, i) => (
@@ -81,7 +92,7 @@ export function Countryside({ w, h, margin }: { w: number; h: number; margin: nu
             key={`f${i}`}
             x={-margin}
             y={-margin + i * 0.16}
-            width={w + margin * 2}
+            width={w + margin + rightMargin}
             height={0.08}
             fill={i % 2 ? PALETTE.field : PALETTE.meadowDark}
           />
@@ -95,6 +106,23 @@ export function Countryside({ w, h, margin }: { w: number; h: number; margin: nu
         fill="none"
         opacity={0.85}
       />
+      {/* 출근길 — 캠퍼스 오른쪽을 따라 세로로 난 길. 아직 출근하지 않은 사원이 여기 서 있는다. */}
+      <g>
+        <rect x={w + 0.9} y={-0.5} width={1.5} height={h + 1} rx={0.4} fill="#a9906a" opacity={0.9} />
+        <rect x={w + 1.55} y={-0.5} width={0.16} height={h + 1} fill="#e8d9b5" opacity={0.35} />
+        {Array.from({ length: Math.floor(h / 3) }).map((_, i) => (
+          <rect
+            key={`kerb${i}`}
+            x={w + 0.72}
+            y={i * 3 + 0.6}
+            width={0.16}
+            height={1.1}
+            rx={0.07}
+            fill="#8a7350"
+            opacity={0.7}
+          />
+        ))}
+      </g>
       {/* 과수원 */}
       {orchard.map((t, i) => (
         <Tree key={`o${i}`} x={t.x} y={t.y} s={t.s} />

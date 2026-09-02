@@ -198,17 +198,18 @@ function AppHeader() {
 
 /* ──────────────────────────── 메인 오피스 ──────────────────────────── */
 
+/** [패널 id, 버튼 라벨, 마우스를 올리면 뜨는 설명] */
 const PANELS = [
-  ['missions', '미션 · 퀘스트'],
-  ['dungeon', '프로젝트 던전'],
-  ['rooms', '채팅방'],
-  ['status', '근태 · 현황판'],
-  ['approvals', '대표 승인 센터'],
-  ['cost', '비용 · API 사용량'],
-  ['people', '조직 · 지사'],
-  ['graph', '관계도'],
-  ['audit', '감사 로그'],
-  ['settings', '설정 · 보안'],
+  ['missions', '미션 · 퀘스트', 'AI 직원에게 지시한 업무의 목록과 진행 단계. 여기서 결과를 승인하거나 중단할 수 있습니다.'],
+  ['dungeon', '프로젝트 던전', '지금 진행 중인 업무를 전투 연출로 봅니다. 몬스터 체력 = 남은 작업량입니다.'],
+  ['rooms', '채팅방', '부서별 단체 채팅방과 전사 공용 채팅방. 초대는 대표가 바로 하거나 사원이 제안한 뒤 대표가 승인합니다.'],
+  ['status', '근태 · 현황판', '누가 지금 무엇을 하는지 한눈에. AI 직원은 실제 상태에서, 인간 사원은 본인이 남긴 한 줄에서 가져옵니다.'],
+  ['approvals', '대표 승인 센터', '비용이 들거나 위험한 작업은 여기서 대표가 승인해야 시작됩니다.'],
+  ['cost', '비용 · API 사용량', '회사 월간 예산, 직원별 사용량, 월별 집계와 CSV 내보내기.'],
+  ['people', '조직 · 지사', '인간 사원 명부(승인·급여·복지·근태)와 지사 목록. 사원 가입 코드도 여기 있습니다.'],
+  ['graph', '관계도', '대표 · AI 직원 · 인간 사원 · 미션의 연결을 그래프로 봅니다(옵시디언 그래프 뷰와 비슷한 개념).'],
+  ['audit', '감사 로그', '누가 · 무엇을 · 언제 했는지의 기록.'],
+  ['settings', '설정 · 보안', '회사 정보, 구글 드라이브 연결, 관리자 문의, 회사 삭제 요청.'],
 ] as const;
 
 function mmss(ms: number): string {
@@ -276,8 +277,15 @@ function OfficeScreen() {
       <EasterEggBanner />
       <DriveConnectionNotice />
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {PANELS.map(([id, label]) => (
-          <Button key={id} size="sm" variant={openPanel === id ? 'primary' : 'ghost'} onClick={() => setPanel(id)}>
+        {PANELS.map(([id, label, hint]) => (
+          <Button
+            key={id}
+            size="sm"
+            variant={openPanel === id ? 'primary' : 'ghost'}
+            hint={hint}
+            hintPlacement="bottom"
+            onClick={() => setPanel(id)}
+          >
             {label}
             {id === 'approvals' && pending > 0 ? ` (${pending})` : ''}
             {id === 'missions' && reviewing > 0 ? ` · 검토 ${reviewing}` : ''}

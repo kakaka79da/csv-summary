@@ -124,7 +124,13 @@ export default function CostDashboard() {
       <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
         <div className="flex items-center justify-between">
           <SectionTitle className="mb-0">월별 AI 비용 사용 내역</SectionTitle>
-          <Button size="sm" variant="ghost" disabled={monthlyRows.length === 0} onClick={exportMonthlyCsv}>
+          <Button
+            size="sm"
+            variant="ghost"
+            hint="직원별·월별로 집계한 AI 사용 비용을 CSV 파일로 저장합니다."
+            disabled={monthlyRows.length === 0}
+            onClick={exportMonthlyCsv}
+          >
             CSV 내보내기
           </Button>
         </div>
@@ -167,7 +173,13 @@ export default function CostDashboard() {
       <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
         <div className="flex items-center justify-between">
           <SectionTitle className="mb-0">API 호출 원장</SectionTitle>
-          <Button size="sm" variant="ghost" disabled={ledger.length === 0} onClick={exportLedgerCsv}>
+          <Button
+            size="sm"
+            variant="ghost"
+            hint="API 호출 한 건 한 건의 원장 기록을 CSV 파일로 저장합니다."
+            disabled={ledger.length === 0}
+            onClick={exportLedgerCsv}
+          >
             CSV 내보내기
           </Button>
         </div>

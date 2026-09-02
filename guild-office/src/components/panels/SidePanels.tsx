@@ -192,7 +192,12 @@ function HumanStaffSection() {
 
       {isCeo && payroll.length > 0 ? (
         <div className="mb-3">
-          <Button size="sm" variant="ghost" onClick={exportPayrollCsv}>
+          <Button
+            size="sm"
+            variant="ghost"
+            hint="급여가 등록된 사원의 이름·직무·근무형태·월급·복지를 CSV 파일로 저장합니다."
+            onClick={exportPayrollCsv}
+          >
             급여·복지 CSV 내보내기
           </Button>
         </div>
@@ -502,6 +507,7 @@ function DriveConnectionSetting({ company }: { company: Company }) {
         />
         <Button
           size="sm"
+          hint="붙여넣은 폴더 링크를 회사 공용 자료 위치로 저장합니다. 실제 파일 업로드는 백엔드 연동 항목입니다."
           onClick={() => {
             const r = setLink(value);
             if (!r.ok) setError(r.error ?? '저장할 수 없습니다.');
@@ -513,6 +519,7 @@ function DriveConnectionSetting({ company }: { company: Company }) {
           <Button
             size="sm"
             variant="ghost"
+            hint="연결을 해제하면 사원과 AI 직원에게 다시 연결 요청 안내가 표시됩니다."
             onClick={() => {
               setValue('');
               setLink(null);
@@ -624,6 +631,7 @@ function CompanyDeletionRequest() {
             <Button
               variant="danger"
               size="sm"
+              hint="바로 삭제되지 않습니다. 플랫폼 관리자가 승인해야 실제로 지워집니다."
               onClick={() => {
                 if (!confirm(`"${company.name}" 회사 삭제를 정말 요청할까요? 승인되면 모든 데이터가 삭제됩니다.`)) return;
                 const r = requestDeletion(reason);

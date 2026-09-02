@@ -67,6 +67,7 @@ export default function ChatRoomsPanel() {
             />
             <Button
               size="sm"
+              hint="입력한 이름으로 부서 채팅방을 만듭니다. 대표만 만들 수 있고, 만든 뒤 멤버를 초대하세요."
               onClick={() => {
                 const r = createTeamRoom(newRoomName);
                 if (r.ok) {
@@ -137,7 +138,12 @@ function RoomThread({ room }: { room: ChatRoom }) {
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-stone-500">멤버 {members.length}명</span>
           {room.kind === 'team' ? (
-            <Button size="sm" variant="ghost" onClick={() => setInviteOpen((v) => !v)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              hint="이 방에 AI 직원이나 인간 사원을 부릅니다. 대표가 부르면 즉시 확정, 사원이 제안하면 대표 승인이 필요합니다."
+              onClick={() => setInviteOpen((v) => !v)}
+            >
               + 초대
             </Button>
           ) : null}
@@ -179,10 +185,10 @@ function RoomThread({ room }: { room: ChatRoom }) {
               </span>
               {isCeo ? (
                 <span className="flex gap-1">
-                  <Button size="sm" onClick={() => decideRoomInvite(inv.id, 'approved')}>
+                  <Button size="sm" hint="승인하면 이 방의 멤버가 됩니다." onClick={() => decideRoomInvite(inv.id, 'approved')}>
                     승인
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => decideRoomInvite(inv.id, 'rejected')}>
+                  <Button size="sm" variant="ghost" hint="초대를 취소합니다. 멤버가 되지 않습니다." onClick={() => decideRoomInvite(inv.id, 'rejected')}>
                     거절
                   </Button>
                 </span>
@@ -224,6 +230,7 @@ function RoomThread({ room }: { room: ChatRoom }) {
           <Button
             size="sm"
             variant="ghost"
+            hint="이 방에 넣어달라고 대표에게 요청합니다. 대표가 승인해야 메시지를 보낼 수 있습니다."
             onClick={() => proposeRoomInvite({ roomId: room.id, inviteeId: myHumanId, inviteeKind: 'human' })}
           >
             이 방에 참여 제안하기
