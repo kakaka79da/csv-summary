@@ -52,6 +52,9 @@ import type {
   ArchivedCompany,
   Artifact,
   AuditEntry,
+  Branch,
+  BranchKind,
+  BranchStatus,
   ChatRoom,
   ChatRoomAuthorKind,
   ChatRoomInvite,
@@ -113,6 +116,13 @@ export interface WorldState {
 
   /** 대표 ↔ 플랫폼 관리자 메시지. 회사(또는 신청서) 단위로 스레드가 묶인다. */
   platformMessages: PlatformMessage[];
+
+  /**
+   * 지사 목록. 회사 창립 시 본사(headquarters)가 하나 자동으로 생기고,
+   * 대표가 국내·해외 지사를 추가로 세울 수 있다.
+   */
+  branches: Record<string, Branch>;
+  branchOrder: string[];
 
   /**
    * 삭제 승인된 회사의 요약 기록. "회사 생성 시 기존 데이터는 따로 저장" 요청에 따라,
@@ -242,6 +252,29 @@ export interface WorldActions {
    * 실제 OAuth 연결이 아니라, 대표가 직접 만든 폴더의 공유 링크를 붙여넣는 방식이다.
    */
   setCompanyDriveLink: (url: string | null) => { ok: boolean; error?: string };
+
+  /* ── 지사 (국내·해외) ────────────────────────────────────────────── */
+
+  /**
+   * 대표가 지사를 세운다. 국내(같은 나라 다른 지역)와 해외 모두 가능하며,
+   * 같은 국가·지역에 이미 있으면 거절한다. 본사는 회사 창립 시 자동으로 생긴다.
+   */
+  establishBranch: (input: {
+    name: string;
+    kind: Exclude<BranchKind, 'headquarters'>;
+    country: string;
+    region: string;
+    serverRegion: string;
+    timezone: string;
+    currency: Company['currency'];
+    note?: string;
+  }) => { ok: boolean; error?: string; branchId?: string };
+
+  /** 지사 상태를 바꾼다(준비 중 ↔ 운영 중 ↔ 폐쇄). 본사는 폐쇄할 수 없다. */
+  setBranchStatus: (branchId: string, status: BranchStatus) => { ok: boolean; error?: string };
+
+  /** 인간 사원을 지사에 배치한다. branchId 가 null 이면 본사 소속으로 되돌린다. */
+  assignStaffToBranch: (staffId: string, branchId: string | null) => { ok: boolean; error?: string };
 
   /* ── 회사 창립 신청 (플랫폼 관리자 승인) ─────────────────────────────── */
 
@@ -392,6 +425,8 @@ const initialState: WorldState = {
   humanStaff: {},
   companyApplications: {},
   platformMessages: [],
+  branches: {},
+  branchOrder: [],
   archivedCompanies: [],
   memories: {},
   missions: {},
@@ -417,6 +452,23 @@ function audit(list: AuditEntry[], actor: string, action: string, target: string
   const entry: AuditEntry = { id: nid('aud'), ts: Date.now(), actor, action, target, detail };
   // 최신 300건만 보관한다.
   return [entry, ...list].slice(0, 300);
+}
+
+/** 회사 창립 시 자동으로 만드는 본사 지사. 폐쇄할 수 없고, 지사 목록의 첫 항목이 된다. */
+function makeHeadquarters(company: Company): Branch {
+  return {
+    id: 'branch_hq',
+    name: company.branch || '본사',
+    kind: 'headquarters',
+    country: company.country,
+    region: company.branch || '본사',
+    serverRegion: 'ap-northeast-2 (서울)',
+    timezone: 'Asia/Seoul',
+    currency: company.currency,
+    status: 'operating',
+    openedAt: Date.now(),
+    note: null,
+  };
 }
 
 /** 회사 창립 시 자동으로 만드는 전사 공용 채팅방. */
@@ -538,6 +590,86 @@ export const useWorld = create<Store>()(
         return { ok: true };
       },
 
+      /* ── 지사 (국내·해외) ──────────────────────────────────────────── */
+      establishBranch: (input) => {
+        const s = get();
+        if (s.session?.role !== 'ceo' || !s.company) return { ok: false, error: '대표만 지사를 세울 수 있습니다.' };
+        const name = input.name.trim();
+        if (!name) return { ok: false, error: '지사 이름을 입력하세요.' };
+        const duplicate = Object.values(s.branches).some(
+          (b) => b.status !== 'closed' && b.country === input.country && b.region === input.region,
+        );
+        if (duplicate) return { ok: false, error: `${input.country} ${input.region} 에는 이미 지사가 있습니다.` };
+
+        const id = nid('br');
+        const branch: Branch = {
+          id,
+          name,
+          kind: input.kind,
+          country: input.country,
+          region: input.region,
+          serverRegion: input.serverRegion,
+          timezone: input.timezone,
+          currency: input.currency,
+          status: 'preparing',
+          openedAt: Date.now(),
+          note: input.note?.trim() || null,
+        };
+        set({
+          branches: { ...s.branches, [id]: branch },
+          branchOrder: [...s.branchOrder, id],
+          audit: audit(
+            s.audit,
+            s.session.accountName,
+            input.kind === 'overseas' ? '해외 지사 설립' : '국내 지사 설립',
+            name,
+            `${input.country} ${input.region} · ${input.serverRegion}`,
+          ),
+          ui: { ...s.ui, toast: `"${name}" 지사를 준비 중 상태로 만들었습니다.` },
+        });
+        return { ok: true, branchId: id };
+      },
+
+      setBranchStatus: (branchId, status) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표만 바꿀 수 있습니다.' };
+        const branch = s.branches[branchId];
+        if (!branch) return { ok: false, error: '지사를 찾을 수 없습니다.' };
+        if (branch.kind === 'headquarters' && status === 'closed') {
+          return { ok: false, error: '본사는 폐쇄할 수 없습니다.' };
+        }
+        set({
+          branches: { ...s.branches, [branchId]: { ...branch, status } },
+          audit: audit(
+            s.audit,
+            s.session.accountName,
+            '지사 상태 변경',
+            branch.name,
+            { operating: '운영 중', preparing: '준비 중', closed: '폐쇄' }[status],
+          ),
+        });
+        return { ok: true };
+      },
+
+      assignStaffToBranch: (staffId, branchId) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표만 배치할 수 있습니다.' };
+        const rec = s.humanStaff[staffId];
+        if (!rec) return { ok: false, error: '사원을 찾을 수 없습니다.' };
+        if (branchId && !s.branches[branchId]) return { ok: false, error: '지사를 찾을 수 없습니다.' };
+        set({
+          humanStaff: { ...s.humanStaff, [staffId]: { ...rec, branchId } },
+          audit: audit(
+            s.audit,
+            s.session.accountName,
+            '사원 지사 배치',
+            rec.name,
+            branchId ? (s.branches[branchId]?.name ?? '-') : '본사',
+          ),
+        });
+        return { ok: true };
+      },
+
       /* ── 회사 창립 신청 (플랫폼 관리자 승인) ─────────────────────────── */
       submitCompanyApplication: (input) => {
         const s = get();
@@ -614,10 +746,13 @@ export const useWorld = create<Store>()(
         const code = generateCompanyCode(app.founding.name);
         const company: Company = { ...app.founding, code, foundedAt: Date.now() };
         const allRoom = makeCompanyWideRoom(company.ceoName);
+        const hq = makeHeadquarters(company);
         set({
           company,
           chatRooms: { [allRoom.id]: allRoom },
           chatRoomOrder: [allRoom.id],
+          branches: { [hq.id]: hq },
+          branchOrder: [hq.id],
           companyApplications: {
             ...s.companyApplications,
             [id]: { ...app, status: 'approved', decidedAt: Date.now(), decidedBy, note: note?.trim() || null },
@@ -654,12 +789,15 @@ export const useWorld = create<Store>()(
         const code = generateCompanyCode(input.name);
         const company: Company = { ...input, code, foundedAt: Date.now() };
         const allRoom = makeCompanyWideRoom(input.ceoName);
+        const hq = makeHeadquarters(company);
         set({
           company,
           phase: 'office_build',
           session: s.session ? { ...s.session, accountName: input.ceoName } : s.session,
           chatRooms: { [allRoom.id]: allRoom },
           chatRoomOrder: [allRoom.id],
+          branches: { [hq.id]: hq },
+          branchOrder: [hq.id],
           audit: audit(
             s.audit,
             input.ceoName,
@@ -1098,6 +1236,8 @@ export const useWorld = create<Store>()(
               chatRoomOrder: [],
               chatRoomMessages: {},
               chatRoomInvites: [],
+              branches: {},
+              branchOrder: [],
               tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
               easterEgg: initialEasterEgg,
               simulationMode: false,
@@ -1408,6 +1548,7 @@ export const useWorld = create<Store>()(
           workMode: 'not_started',
           currentTaskNote: null,
           currentTaskUpdatedAt: null,
+          branchId: null,
           monthlySalaryUsd: null,
           benefits: [],
           requestedAt: Date.now(),
@@ -1595,6 +1736,7 @@ export const useWorld = create<Store>()(
                 benefits: ['4대보험'],
                 currentTaskNote: spec.currentTaskNote,
                 currentTaskUpdatedAt: spec.currentTaskNote ? now : null,
+                branchId: null,
                 requestedAt: now,
                 decidedAt: now,
                 decidedBy: s1.company?.ceoName ?? '대표',
@@ -1902,6 +2044,8 @@ export const useWorld = create<Store>()(
         humanStaff: s.humanStaff,
         companyApplications: s.companyApplications,
         platformMessages: s.platformMessages,
+        branches: s.branches,
+        branchOrder: s.branchOrder,
         archivedCompanies: s.archivedCompanies,
         memories: s.memories,
         missions: s.missions,

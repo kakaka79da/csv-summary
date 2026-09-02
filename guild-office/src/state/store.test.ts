@@ -1137,3 +1137,110 @@ describe('사원 자기보고 업무 노트', () => {
     expect(asCeo.ok).toBe(false);
   });
 });
+
+
+describe('지사 설립 — 국내·해외', () => {
+  it('회사를 창립하면 본사 지사가 자동으로 하나 생긴다', () => {
+    bootstrap();
+    const s = useWorld.getState();
+    expect(s.branchOrder).toHaveLength(1);
+    expect(s.branches[s.branchOrder[0]].kind).toBe('headquarters');
+  });
+
+  it('대표는 국내·해외 지사를 세울 수 있고, 처음에는 준비 중 상태다', () => {
+    bootstrap();
+    const domestic = useWorld.getState().establishBranch({
+      name: '부산 지사',
+      kind: 'domestic',
+      country: '대한민국',
+      region: '부산광역시',
+      serverRegion: 'ap-northeast-2 (서울)',
+      timezone: 'Asia/Seoul',
+      currency: 'KRW',
+    });
+    expect(domestic.ok).toBe(true);
+    expect(useWorld.getState().branches[domestic.branchId!].status).toBe('preparing');
+
+    const overseas = useWorld.getState().establishBranch({
+      name: '도쿄 지사',
+      kind: 'overseas',
+      country: '일본',
+      region: '도쿄',
+      serverRegion: 'ap-northeast-1 (도쿄)',
+      timezone: 'Asia/Tokyo',
+      currency: 'JPY',
+    });
+    expect(overseas.ok).toBe(true);
+    expect(useWorld.getState().branchOrder).toHaveLength(3);
+  });
+
+  it('같은 국가·지역에 이미 지사가 있으면 중복 설립을 막는다', () => {
+    bootstrap();
+    const input = {
+      name: '부산 지사',
+      kind: 'domestic' as const,
+      country: '대한민국',
+      region: '부산광역시',
+      serverRegion: 'ap-northeast-2 (서울)',
+      timezone: 'Asia/Seoul',
+      currency: 'KRW' as const,
+    };
+    expect(useWorld.getState().establishBranch(input).ok).toBe(true);
+    expect(useWorld.getState().establishBranch(input).ok).toBe(false);
+  });
+
+  it('대표가 아니면 지사를 세울 수 없다', () => {
+    bootstrap();
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    const r = useWorld.getState().establishBranch({
+      name: '도쿄 지사',
+      kind: 'overseas',
+      country: '일본',
+      region: '도쿄',
+      serverRegion: 'ap-northeast-1 (도쿄)',
+      timezone: 'Asia/Tokyo',
+      currency: 'JPY',
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('본사는 폐쇄할 수 없고, 일반 지사는 운영/폐쇄로 바꿀 수 있다', () => {
+    bootstrap();
+    const hqId = useWorld.getState().branchOrder[0];
+    expect(useWorld.getState().setBranchStatus(hqId, 'closed').ok).toBe(false);
+
+    const branchId = useWorld.getState().establishBranch({
+      name: '도쿄 지사',
+      kind: 'overseas',
+      country: '일본',
+      region: '도쿄',
+      serverRegion: 'ap-northeast-1 (도쿄)',
+      timezone: 'Asia/Tokyo',
+      currency: 'JPY',
+    }).branchId!;
+    expect(useWorld.getState().setBranchStatus(branchId, 'operating').ok).toBe(true);
+    expect(useWorld.getState().branches[branchId].status).toBe('operating');
+    expect(useWorld.getState().setBranchStatus(branchId, 'closed').ok).toBe(true);
+  });
+
+  it('대표는 사원을 지사에 배치하고 다시 본사로 되돌릴 수 있다', () => {
+    bootstrap();
+    const staffId = approveHumanStaff('김철수', 'chulsoo@example.com');
+    const branchId = useWorld.getState().establishBranch({
+      name: '부산 지사',
+      kind: 'domestic',
+      country: '대한민국',
+      region: '부산광역시',
+      serverRegion: 'ap-northeast-2 (서울)',
+      timezone: 'Asia/Seoul',
+      currency: 'KRW',
+    }).branchId!;
+
+    expect(useWorld.getState().humanStaff[staffId].branchId).toBeNull();
+    expect(useWorld.getState().assignStaffToBranch(staffId, branchId).ok).toBe(true);
+    expect(useWorld.getState().humanStaff[staffId].branchId).toBe(branchId);
+    expect(useWorld.getState().assignStaffToBranch(staffId, null).ok).toBe(true);
+    expect(useWorld.getState().humanStaff[staffId].branchId).toBeNull();
+  });
+});

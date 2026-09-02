@@ -6,21 +6,20 @@ import { useState } from 'react';
 import { useWorld } from '@/state/store';
 import { clock, money } from '@/lib/format';
 import { downloadCsv } from '@/lib/csv';
-import { EMPLOYEE_APPEARANCES, PLATFORM_MAKER } from '@/data/seed';
+import { DOMESTIC_BRANCH_PRESETS, EMPLOYEE_APPEARANCES, OVERSEAS_BRANCH_PRESETS, PLATFORM_MAKER } from '@/data/seed';
 import { Badge, Button, Field, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
-import type { Company, HumanStaffRecord, WorkMode } from '@/types';
+import type { BranchStatus, Company, HumanStaffRecord, WorkMode } from '@/types';
+
+const BRANCH_STATUS_LABEL: Record<BranchStatus, string> = {
+  operating: '운영 중',
+  preparing: '준비 중',
+  closed: '폐쇄',
+};
 
 const WORK_MODE_LABEL: Record<WorkMode, string> = { office: '출근', remote: '재택', not_started: '미출근' };
 
 /** 데모용 지급일 관례 — 매월 25일. 실제 지급일 설정은 백엔드 항목으로 분리한다. */
 const PAYDAY_DOM = 25;
-
-const BRANCHES = [
-  { id: 'kr', label: '한국 본사', region: 'ap-northeast-2 (서울)', status: '운영 중' },
-  { id: 'jp', label: '일본 지사', region: 'ap-northeast-1 (도쿄)', status: '3단계에서 개설' },
-  { id: 'us', label: '미국 지사', region: 'us-west-2 (오레곤)', status: '3단계에서 개설' },
-  { id: 'eu', label: '유럽 지사', region: 'eu-central-1 (프랑크푸르트)', status: '3단계에서 개설' },
-];
 
 export function PeoplePanel() {
   const company = useWorld((s) => s.company);
@@ -122,22 +121,164 @@ export function PeoplePanel() {
       </div>
 
       {/* 지사 / 서버 */}
-      <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
-        <SectionTitle>지사 및 서버</SectionTitle>
-        <div className="space-y-1.5 text-[11px]">
-          {BRANCHES.map((b) => (
-            <div key={b.id} className="flex items-center justify-between rounded-lg border border-stone-800 px-3 py-2">
-              <span>
-                <span className="block text-stone-100">{b.label}</span>
-                <span className="text-stone-500">{b.region}</span>
+      <BranchSection />
+    </div>
+  );
+}
+
+/**
+ * 지사 관리 — 국내(같은 나라 다른 지역)와 해외 모두 세울 수 있다.
+ *
+ * 지사마다 서버 리전을 함께 정하는데, 나라마다 개인정보 국외 이전 규제가 다르기
+ * 때문이다. ⚠️ 이 프로토타입은 실제로 리전을 나눠 저장하지는 않는다 — 표시용 값이며,
+ * 실제 분리 저장은 백엔드 항목이다(docs/BACKEND-MIGRATION.md).
+ */
+function BranchSection() {
+  const company = useWorld((s) => s.company);
+  const session = useWorld((s) => s.session);
+  const branches = useWorld((s) => s.branches);
+  const branchOrder = useWorld((s) => s.branchOrder);
+  const humanStaff = useWorld((s) => s.humanStaff);
+  const establishBranch = useWorld((s) => s.establishBranch);
+  const setBranchStatus = useWorld((s) => s.setBranchStatus);
+  const [scope, setScope] = useState<'domestic' | 'overseas'>('domestic');
+  const [presetIndex, setPresetIndex] = useState(0);
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  if (!company) return null;
+
+  const isCeo = session?.role === 'ceo';
+  const presets = scope === 'domestic' ? DOMESTIC_BRANCH_PRESETS : OVERSEAS_BRANCH_PRESETS;
+  const preset = presets[presetIndex] ?? presets[0];
+  const list = branchOrder.map((id) => branches[id]).filter(Boolean);
+
+  const headcount = (branchId: string, isHq: boolean) =>
+    Object.values(humanStaff).filter(
+      (r) => r.status === 'approved' && (r.branchId === branchId || (isHq && !r.branchId)),
+    ).length;
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>지사 및 서버 ({list.filter((b) => b.status !== 'closed').length}곳)</SectionTitle>
+
+      <div className="space-y-1.5 text-[11px]">
+        {list.map((b) => (
+          <div key={b.id} className="rounded-lg border border-stone-800 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0">
+                <span className="block text-stone-100">
+                  {b.kind === 'headquarters' ? '🏛 ' : b.kind === 'overseas' ? '🌏 ' : '🏢 '}
+                  {b.name}
+                </span>
+                <span className="text-stone-500">
+                  {b.country} · {b.region} · {b.serverRegion}
+                </span>
               </span>
-              <Badge tone={b.label === company.branch ? 'gold' : 'neutral'}>
-                {b.label === company.branch ? '현재 지사' : b.status}
-              </Badge>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <Badge tone="neutral">{b.currency}</Badge>
+                <Badge tone={b.status === 'operating' ? 'gold' : b.status === 'preparing' ? 'arcane' : 'neutral'}>
+                  {BRANCH_STATUS_LABEL[b.status]}
+                </Badge>
+              </span>
             </div>
-          ))}
-        </div>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <span className="text-stone-500">
+                소속 사원 {headcount(b.id, b.kind === 'headquarters')}명 · {b.timezone}
+              </span>
+              {isCeo && b.kind !== 'headquarters' ? (
+                <span className="flex gap-1">
+                  {b.status !== 'operating' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      hint="준비를 마치고 정식 운영으로 전환합니다."
+                      onClick={() => setBranchStatus(b.id, 'operating')}
+                    >
+                      운영 시작
+                    </Button>
+                  ) : null}
+                  {b.status !== 'closed' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      hint="폐쇄해도 기록은 남습니다. 소속 사원은 다시 배치해야 합니다."
+                      onClick={() => setBranchStatus(b.id, 'closed')}
+                    >
+                      폐쇄
+                    </Button>
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ))}
       </div>
+
+      {isCeo ? (
+        <div className="mt-3 rounded-lg border border-stone-700 bg-stone-950/50 p-3">
+          <SectionTitle className="mb-1.5">새 지사 설립</SectionTitle>
+          <div className="mb-2 flex gap-1.5">
+            {(['domestic', 'overseas'] as const).map((k) => (
+              <Button
+                key={k}
+                size="sm"
+                variant={scope === k ? 'primary' : 'ghost'}
+                hint={k === 'domestic' ? '같은 나라(대한민국) 안의 다른 지역에 세웁니다.' : '다른 나라에 세웁니다. 서버 리전과 통화가 함께 바뀝니다.'}
+                onClick={() => {
+                  setScope(k);
+                  setPresetIndex(0);
+                  setError(null);
+                }}
+              >
+                {k === 'domestic' ? '국내' : '해외'}
+              </Button>
+            ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="지역">
+              <Select value={presetIndex} onChange={(e) => setPresetIndex(Number(e.target.value))}>
+                {presets.map((p, i) => (
+                  <option key={`${p.country}-${p.region}`} value={i}>
+                    {scope === 'domestic' ? p.region : `${p.country} · ${p.region}`}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="지사 이름" hint={`비워 두면 "${preset.region} 지사"로 만듭니다`}>
+              <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder={`${preset.region} 지사`} />
+            </Field>
+          </div>
+          <p className="mt-1.5 text-[11px] text-stone-500">
+            서버 리전 <span className="text-stone-300">{preset.serverRegion}</span> · 시간대 {preset.timezone} · 기본 통화{' '}
+            {preset.currency}
+          </p>
+          {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
+          <div className="mt-2 flex justify-end">
+            <Button
+              size="sm"
+              hint="먼저 '준비 중' 상태로 만들어집니다. 준비가 끝나면 운영 시작을 누르세요."
+              onClick={() => {
+                const r = establishBranch({
+                  name: name.trim() || `${preset.region} 지사`,
+                  kind: scope,
+                  country: preset.country,
+                  region: preset.region,
+                  serverRegion: preset.serverRegion,
+                  timezone: preset.timezone,
+                  currency: preset.currency,
+                });
+                if (!r.ok) setError(r.error ?? '설립할 수 없습니다.');
+                else {
+                  setError(null);
+                  setName('');
+                }
+              }}
+            >
+              지사 설립
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -249,6 +390,31 @@ function HumanStaffSection() {
   );
 }
 
+/** 명부에서 사원을 지사에 배치하는 드롭다운. 폐쇄된 지사는 고를 수 없다. */
+function BranchPicker({ record }: { record: HumanStaffRecord }) {
+  const branches = useWorld((s) => s.branches);
+  const branchOrder = useWorld((s) => s.branchOrder);
+  const assign = useWorld((s) => s.assignStaffToBranch);
+  const open = branchOrder.map((id) => branches[id]).filter((b) => b && b.status !== 'closed');
+  if (open.length <= 1) return null;
+
+  return (
+    <Select
+      value={record.branchId ?? ''}
+      onChange={(e) => assign(record.id, e.target.value || null)}
+    >
+      <option value="">본사 소속</option>
+      {open
+        .filter((b) => b.kind !== 'headquarters')
+        .map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+    </Select>
+  );
+}
+
 function RosterRow({
   record,
   isCeo,
@@ -294,6 +460,7 @@ function RosterRow({
                 <option value="remote">재택</option>
                 <option value="not_started">미출근</option>
               </Select>
+              <BranchPicker record={record} />
               <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
                 급여·복지 편집
               </Button>

@@ -14,6 +14,7 @@ import type {
   ProviderId,
   Room,
   RoomId,
+  Company,
   Vec2,
   WorkMode,
 } from '@/types';
@@ -473,6 +474,61 @@ export const EMPLOYEE_APPEARANCES: Record<
 };
 
 export const EMPLOYEE_APPEARANCE_IDS = Object.keys(EMPLOYEE_APPEARANCES) as EmployeeAppearanceId[];
+
+/* ─────────────────────────── 지사 설립 프리셋 ─────────────────────────── */
+
+/**
+ * 지사를 세울 때 고르는 후보지.
+ *
+ * 국내(대한민국)는 시·도 단위로, 해외는 국가 + 대표 도시 단위로 둔다. 서버 리전은
+ * 개인정보 국외 이전 규제 때문에 지사와 함께 정해야 하는 값이라 같이 묶어 둔다
+ * (이 프로토타입은 실제로 리전을 나눠 저장하지 않는다 — 표시용이다).
+ */
+export interface BranchPreset {
+  country: string;
+  region: string;
+  serverRegion: string;
+  timezone: string;
+  currency: Company['currency'];
+}
+
+/** 국내 — 시·도 단위 */
+export const DOMESTIC_BRANCH_PRESETS: BranchPreset[] = [
+  { country: '대한민국', region: '서울특별시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '부산광역시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '인천광역시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '대구광역시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '대전광역시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '광주광역시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '울산광역시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '세종특별자치시', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '경기도 (수원)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '강원특별자치도 (춘천)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '충청북도 (청주)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '충청남도 (천안)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '전북특별자치도 (전주)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '전라남도 (여수)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '경상북도 (포항)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '경상남도 (창원)', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+  { country: '대한민국', region: '제주특별자치도', serverRegion: 'ap-northeast-2 (서울)', timezone: 'Asia/Seoul', currency: 'KRW' },
+];
+
+/** 해외 — 국가 + 대표 도시 */
+export const OVERSEAS_BRANCH_PRESETS: BranchPreset[] = [
+  { country: '일본', region: '도쿄', serverRegion: 'ap-northeast-1 (도쿄)', timezone: 'Asia/Tokyo', currency: 'JPY' },
+  { country: '미국', region: '로스앤젤레스', serverRegion: 'us-west-2 (오레곤)', timezone: 'America/Los_Angeles', currency: 'USD' },
+  { country: '미국', region: '뉴욕', serverRegion: 'us-east-1 (버지니아)', timezone: 'America/New_York', currency: 'USD' },
+  { country: '싱가포르', region: '싱가포르', serverRegion: 'ap-southeast-1 (싱가포르)', timezone: 'Asia/Singapore', currency: 'USD' },
+  { country: '베트남', region: '호치민', serverRegion: 'ap-southeast-1 (싱가포르)', timezone: 'Asia/Ho_Chi_Minh', currency: 'USD' },
+  { country: '인도네시아', region: '자카르타', serverRegion: 'ap-southeast-3 (자카르타)', timezone: 'Asia/Jakarta', currency: 'USD' },
+  { country: '인도', region: '뭄바이', serverRegion: 'ap-south-1 (뭄바이)', timezone: 'Asia/Kolkata', currency: 'USD' },
+  { country: '중국', region: '상하이', serverRegion: 'cn-north-1 (베이징)', timezone: 'Asia/Shanghai', currency: 'USD' },
+  { country: '독일', region: '프랑크푸르트', serverRegion: 'eu-central-1 (프랑크푸르트)', timezone: 'Europe/Berlin', currency: 'EUR' },
+  { country: '영국', region: '런던', serverRegion: 'eu-west-2 (런던)', timezone: 'Europe/London', currency: 'EUR' },
+  { country: '호주', region: '시드니', serverRegion: 'ap-southeast-2 (시드니)', timezone: 'Australia/Sydney', currency: 'USD' },
+  { country: '캐나다', region: '토론토', serverRegion: 'ca-central-1 (캐나다 중부)', timezone: 'America/Toronto', currency: 'USD' },
+  { country: '아랍에미리트', region: '두바이', serverRegion: 'me-central-1 (UAE)', timezone: 'Asia/Dubai', currency: 'USD' },
+];
 
 /**
  * 시뮬레이션(자유 테스트) 모드에서만 미리 넣는 가짜 인간 사원.

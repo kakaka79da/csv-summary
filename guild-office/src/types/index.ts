@@ -251,9 +251,46 @@ export interface HumanStaffRecord {
   currentTaskNote: string | null;
   currentTaskUpdatedAt: number | null;
 
+  /** 소속 지사. null 이면 아직 배치되지 않은 것으로 보고 본사 소속으로 표시한다. */
+  branchId: string | null;
+
   requestedAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
+}
+
+/* ─────────────────────────── 지사 (국내·해외) ─────────────────────────── */
+
+/**
+ * 지사 종류.
+ *  - headquarters: 본사. 회사 창립 시 자동으로 하나 생기고 폐쇄할 수 없다.
+ *  - domestic: 같은 나라 안의 다른 지역 (예: 서울 본사 + 부산 지사)
+ *  - overseas: 다른 나라
+ */
+export type BranchKind = 'headquarters' | 'domestic' | 'overseas';
+
+/** 지사 운영 상태. 폐쇄해도 기록은 남긴다(인원·비용 이력이 붙어 있기 때문). */
+export type BranchStatus = 'operating' | 'preparing' | 'closed';
+
+export interface Branch {
+  id: string;
+  name: string;
+  kind: BranchKind;
+  /** 국가명 (예: 대한민국, 일본) */
+  country: string;
+  /** 국내면 시/도, 해외면 도시 (예: 부산광역시, 도쿄) */
+  region: string;
+  /**
+   * 이 지사의 데이터를 두는 서버 리전. 국가별로 개인정보 국외 이전 규제가
+   * 다르기 때문에 지사를 세울 때 함께 정한다.
+   * ⚠️ 이 프로토타입은 실제로 리전을 나눠 저장하지 않는다 — 표시용 값이다.
+   */
+  serverRegion: string;
+  timezone: string;
+  currency: Company['currency'];
+  status: BranchStatus;
+  openedAt: number;
+  note: string | null;
 }
 
 /* ─────────────────────── 회사 창립 신청 (관리자 승인) ──────────────────── */
