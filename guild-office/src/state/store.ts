@@ -29,6 +29,7 @@ import { seedMemory, type MemoryAgreement } from '@/data/memorySeed';
 import {
   ADMIN_UNLOCK_CODE,
   EASTER_EGG_CODE,
+  SIMULATION_MODE_CODE,
   advanceEasterEgg,
   initialEasterEgg,
   resetEasterEggEmployees,
@@ -144,6 +145,13 @@ export interface WorldState {
    * 완전히 무관한 가상 시나리오임을 항상 배너·보고 문구로 함께 밝힌다.
    */
   easterEgg: EasterEggRuntime;
+
+  /**
+   * 시뮬레이션(자유 테스트) 모드로 들어왔는지 여부. 관리자 승인 없이 임의의
+   * 사업자로 즉시 만든 회사라는 것을 화면에 계속 알려주기 위한 표시용 값이다.
+   * easterEgg 와 마찬가지로 새로고침 시 초기화된다(partialize 에 포함하지 않음).
+   */
+  simulationMode: boolean;
 }
 
 export interface WorldActions {
@@ -330,6 +338,7 @@ const initialState: WorldState = {
   ui: { selectedEmployeeId: null, openPanel: null, interviewQueue: [], toast: null },
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
   easterEgg: initialEasterEgg,
+  simulationMode: false,
 };
 
 /* ────────────────────────────── 보조 함수 ────────────────────────────── */
@@ -1006,6 +1015,7 @@ export const useWorld = create<Store>()(
               chats: {},
               tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
               easterEgg: initialEasterEgg,
+              simulationMode: false,
               archivedCompanies,
               audit: audit(s.audit, s.session?.accountName ?? '-', '회사 삭제 승인', companyName, '데이터 삭제 · 요약은 아카이브에 보관'),
               ui: { ...s.ui, toast: `"${companyName}" 회사를 삭제했습니다. 요약 기록은 아카이브에 남아 있습니다.` },
@@ -1436,6 +1446,33 @@ export const useWorld = create<Store>()(
         // 로그인 화면에는 관리자 버튼을 아예 노출하지 않고, 이 코드로만 들어간다.
         if (trimmed === ADMIN_UNLOCK_CODE) {
           if (!get().session) get().loginDemo('platform_admin');
+          return true;
+        }
+
+        // 세 번째 숨은 코드 — 관리자 승인·회사 신청 절차를 건너뛰고 임의의 사업자로
+        // 즉시 로그인해 기능을 자유롭게 테스트한다. 이스터에그와 달리 자동 대본은
+        // 재생되지 않는다 — 직접 눌러보며 테스트하는 용도다.
+        if (trimmed === SIMULATION_MODE_CODE) {
+          if (!get().session) get().loginDemo('ceo');
+          if (!get().company) {
+            get().foundCompany({ ...COMPANY_DEFAULTS });
+            get().buildOffice();
+          }
+          if (Object.keys(get().employees).length < 3) get().summonEmployees();
+          const s2 = get();
+          set({
+            phase: 'live',
+            tutorial: { summoned: true, interviewsDone: true, firstMissionDone: true },
+            simulationMode: true,
+            audit: audit(
+              s2.audit,
+              s2.session?.accountName ?? PLATFORM_MAKER,
+              '시뮬레이션 모드 진입',
+              s2.company?.name ?? '테스트용 회사',
+              '관리자 승인 없이 임의의 사업자로 즉시 생성 (실제 서비스 아님)',
+            ),
+            ui: { ...s2.ui, toast: '🧪 시뮬레이션 모드로 진입했습니다. 임의의 사업자로 자유롭게 기능을 테스트할 수 있습니다.' },
+          });
           return true;
         }
 

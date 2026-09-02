@@ -49,7 +49,9 @@ export default function AdminDashboard() {
             로그인: <span className="text-stone-300">{session?.accountName}</span>
           </span>
           {pendingApplications.length + pendingDeletions.length > 0 ? (
-            <Badge tone="gold">처리 대기 {pendingApplications.length + pendingDeletions.length}</Badge>
+            <span title={`회사 창립 신청 ${pendingApplications.length}건 + 회사 삭제 요청 ${pendingDeletions.length}건`}>
+              <Badge tone="gold">처리 대기 {pendingApplications.length + pendingDeletions.length}</Badge>
+            </span>
           ) : null}
           <div className="ml-auto flex items-center gap-3">
             <EasterEggCredit makerName={makerName} />
@@ -66,7 +68,10 @@ export default function AdminDashboard() {
           문의 대응처럼 "절대적으로 확인이 필요한" 항목만 다룹니다.
         </Notice>
 
-        <Section title={`회사 창립 신청 승인 (${pendingApplications.length}건 대기)`}>
+        <Section
+          title={`회사 창립 신청 승인 (${pendingApplications.length}건 대기)`}
+          hint="대표가 제출한 회사 창립 신청서입니다. 승인해야 실제 회사가 만들어지고, 거절하면 대표 화면에 사유가 표시됩니다."
+        >
           {pendingApplications.length === 0 ? (
             <p className="text-xs text-stone-600">대기 중인 신청이 없습니다.</p>
           ) : (
@@ -78,7 +83,10 @@ export default function AdminDashboard() {
           )}
         </Section>
 
-        <Section title={`회사 삭제 승인 (${pendingDeletions.length}건 대기)`}>
+        <Section
+          title={`회사 삭제 승인 (${pendingDeletions.length}건 대기)`}
+          hint="대표가 요청한 회사 삭제 건입니다. 대표 본인은 승인할 수 없고, 반드시 여기서 관리자가 결정합니다. 승인하면 회사 데이터가 삭제되고 요약만 아카이브에 남습니다."
+        >
           <p className="mb-2 text-[11px] text-stone-500">
             개별 회사를 삭제하는 일은 되돌릴 수 없는 큰 결정이라, 대표 본인이 아니라 반드시 여기서만
             승인할 수 있습니다.
@@ -94,7 +102,7 @@ export default function AdminDashboard() {
           )}
         </Section>
 
-        <Section title="현재 운영 중인 회사">
+        <Section title="현재 운영 중인 회사" hint="이 브라우저에서 지금 승인되어 살아 있는 회사 정보입니다. 이 데모는 한 브라우저에 회사가 하나만 있을 수 있습니다.">
           {company ? (
             <div className="grid gap-x-4 gap-y-1 text-[11px] sm:grid-cols-3">
               <Row k="회사명" v={company.name} />
@@ -109,7 +117,10 @@ export default function AdminDashboard() {
           )}
         </Section>
 
-        <Section title={`아카이브된 회사 (${archived.length})`}>
+        <Section
+          title={`아카이브된 회사 (${archived.length})`}
+          hint="삭제 승인된 회사의 요약 기록입니다. 전체 데이터는 지워지고, 회사 정보와 통계 요약만 여기 남습니다."
+        >
           {archived.length === 0 ? (
             <p className="text-xs text-stone-600">삭제된 회사가 없습니다.</p>
           ) : (
@@ -134,15 +145,15 @@ export default function AdminDashboard() {
           )}
         </Section>
 
-        <Section title="대표 ↔ 관리자 메시지">
+        <Section title="대표 ↔ 관리자 메시지" hint="회사별 대표가 보낸 건의·문의 메시지입니다. 왼쪽에서 회사를 고르고 답장하세요.">
           <MessagingInbox />
         </Section>
 
-        <Section title="플랫폼 설정">
+        <Section title="플랫폼 설정" hint="오피스 안에서 대표가 세우는 회사 이름과는 다릅니다 — 이 소프트웨어 자체를 만든 주체 표기입니다.">
           <PlatformMakerSetting />
         </Section>
 
-        <Section title="감사 로그">
+        <Section title="감사 로그" hint="누가·무엇을·언제 했는지의 기록입니다. 이 프로토타입에서는 브라우저에만 저장됩니다.">
           <AuditLog />
         </Section>
       </div>
@@ -156,19 +167,29 @@ export default function AdminDashboard() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
-      <SectionTitle>{title}</SectionTitle>
+      <div className="mb-2 flex items-center gap-1.5">
+        <SectionTitle className="mb-0">{title}</SectionTitle>
+        {hint ? (
+          <span
+            title={hint}
+            className="grid h-3.5 w-3.5 shrink-0 cursor-help place-items-center rounded-full border border-stone-600 text-[9px] leading-none text-stone-500"
+          >
+            i
+          </span>
+        ) : null}
+      </div>
       {children}
     </div>
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
+function Row({ k, v, hint }: { k: string; v: string; hint?: string }) {
   return (
-    <div className="flex justify-between gap-2">
-      <span className="shrink-0 text-stone-500">{k}</span>
+    <div className="flex justify-between gap-2" title={hint}>
+      <span className={`shrink-0 text-stone-500 ${hint ? 'cursor-help underline decoration-dotted' : ''}`}>{k}</span>
       <span className="truncate text-right text-stone-300">{v}</span>
     </div>
   );
@@ -187,7 +208,7 @@ function ApplicationCard({ application }: { application: CompanyApplication }) {
       </div>
       <div className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-3">
         <Row k="대표" v={f.ceoName} />
-        <Row k="가입 아이디" v={application.accountId} />
+        <Row k="가입 아이디" v={application.accountId} hint="실제 비밀번호가 아닙니다 — 데모에서 신청 내역을 다시 찾기 위한 식별자일 뿐입니다." />
         <Row k="대표 연락처" v={`${f.ceoPhone} · ${f.ceoEmail}`} />
         <Row k="사업자등록번호" v={f.businessRegNo} />
         <Row k="지사 / 통화" v={`${f.branch} / ${f.currency}`} />
@@ -203,10 +224,19 @@ function ApplicationCard({ application }: { application: CompanyApplication }) {
         <TextInput placeholder="메모 (선택, 승인/거절 사유)" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <div className="mt-2 flex justify-end gap-2">
-        <Button size="sm" onClick={() => decide(application.id, 'approved', note || undefined)}>
+        <Button
+          size="sm"
+          title="실제 Company 를 생성하고, 대표가 다시 로그인하면 사무실 건설 단계부터 이어집니다."
+          onClick={() => decide(application.id, 'approved', note || undefined)}
+        >
           창립 승인
         </Button>
-        <Button size="sm" variant="danger" onClick={() => decide(application.id, 'rejected', note || undefined)}>
+        <Button
+          size="sm"
+          variant="danger"
+          title="회사가 만들어지지 않습니다. 대표 화면에 거절 사유(메모)가 표시됩니다."
+          onClick={() => decide(application.id, 'rejected', note || undefined)}
+        >
           거절
         </Button>
       </div>
@@ -230,10 +260,15 @@ function DeletionCard({ approval }: { approval: Approval }) {
         <TextInput placeholder="메모 (선택)" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <div className="mt-2 flex justify-end gap-2">
-        <Button size="sm" variant="danger" onClick={() => decide(approval.id, 'approved', note || undefined)}>
+        <Button
+          size="sm"
+          variant="danger"
+          title="되돌릴 수 없습니다 — 회사 데이터를 지우고 요약만 아카이브에 남깁니다."
+          onClick={() => decide(approval.id, 'approved', note || undefined)}
+        >
           삭제 승인
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => decide(approval.id, 'rejected', note || undefined)}>
+        <Button size="sm" variant="ghost" title="회사는 그대로 유지됩니다." onClick={() => decide(approval.id, 'rejected', note || undefined)}>
           거절
         </Button>
       </div>

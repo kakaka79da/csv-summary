@@ -20,6 +20,10 @@ import { nextAgentState, type AgentEvent } from '@/state/agentMachine';
 import type { Employee, Message, MessageKind, RoomId } from '@/types';
 import type { WorkState } from '@/state/agentMachine';
 
+/**
+ * 사업자(대표)가 제품을 시연·확인할 때 쓰는 가상 테스트 모드. 20분짜리 자동
+ * 시나리오가 그대로 재생된다 — 아래 SIMULATION_MODE_CODE 와는 다른 목적이다.
+ */
 export const EASTER_EGG_CODE = 'mkang428428';
 
 /**
@@ -28,6 +32,14 @@ export const EASTER_EGG_CODE = 'mkang428428';
  * 않는 숨겨진 진입점으로 관리자 모드에 들어간다.
  */
 export const ADMIN_UNLOCK_CODE = 'mkang428428##';
+
+/**
+ * 시뮬레이션(자유 테스트) 모드 코드. 관리자 승인·회사 신청 절차 없이 임의의
+ * 사업자(대표)로 즉시 로그인해 회사·AI 직원이 이미 준비된 상태에서 여러 기능을
+ * 자유롭게 눌러볼 수 있다. EASTER_EGG_CODE 와 달리 자동 대본이 재생되지 않는다 —
+ * 직접 조작하며 테스트하는 용도다.
+ */
+export const SIMULATION_MODE_CODE = 'mkang428428@@';
 
 /* ────────────────────────────── 대본 형식 ────────────────────────────── */
 

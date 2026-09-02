@@ -149,6 +149,7 @@ function AppHeader() {
   const approvals = useWorld((s) => s.approvals);
   const logout = useWorld((s) => s.logout);
   const makerName = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
+  const simulationMode = useWorld((s) => s.simulationMode);
 
   const spent = ledger.reduce((s, e) => s + e.costUsd, 0);
   const pending = approvals.filter((a) => a.status === 'pending').length;
@@ -170,6 +171,11 @@ function AppHeader() {
                 {money(company.monthlyBudgetUsd, company.currency)}
               </span>
             </>
+          ) : null}
+          {simulationMode ? (
+            <span title="관리자 승인 절차 없이 숨은 코드로 즉시 만든 테스트용 회사입니다. 실제 서비스 데이터가 아닙니다.">
+              <Badge tone="arcane">🧪 시뮬레이션 모드</Badge>
+            </span>
           ) : null}
           {pending > 0 ? <Badge tone="gold">승인 대기 {pending}</Badge> : null}
           <span className="text-stone-500">

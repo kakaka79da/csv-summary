@@ -447,6 +447,30 @@ describe('숨겨진 관리자 로그인 코드', () => {
     expect(ok).toBe(true);
     expect(useWorld.getState().session?.role).toBe('ceo');
   });
+
+  it('mkang428428@@ 코드는 관리자 승인 없이 즉시 대표·회사·AI 직원을 만들고 시뮬레이션 모드로 표시한다', () => {
+    useWorld.getState().resetAll();
+    expect(useWorld.getState().session).toBeNull();
+
+    const ok = useWorld.getState().tryEasterEggCode('mkang428428@@');
+    expect(ok).toBe(true);
+
+    const s = useWorld.getState();
+    expect(s.session?.role).toBe('ceo');
+    expect(s.company).not.toBeNull();
+    expect(Object.keys(s.employees)).toHaveLength(3);
+    expect(s.phase).toBe('live');
+    expect(s.simulationMode).toBe(true);
+    // 자동 대본은 재생되지 않는다 — 이스터에그와 다르다.
+    expect(s.easterEgg.active).toBe(false);
+  });
+
+  it('시뮬레이션 모드는 이스터에그·관리자 코드와 서로 다른 문자열이라 혼동되지 않는다', () => {
+    useWorld.getState().resetAll();
+    expect(useWorld.getState().tryEasterEggCode('mkang428428')).toBe(true);
+    expect(useWorld.getState().simulationMode).toBe(false);
+    expect(useWorld.getState().easterEgg.active).toBe(true);
+  });
 });
 
 describe('이스터에그 — 탱크형 변형 휠 데모', () => {
