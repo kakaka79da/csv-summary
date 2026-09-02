@@ -237,6 +237,22 @@ function EasterEggBanner() {
   );
 }
 
+/**
+ * 회사에 구글 드라이브가 연결되어 있지 않을 때, 인간 사원에게만 보이는 안내.
+ * 대표만 연결할 수 있으므로 사원에게는 "대표에게 요청하라"고 안내한다.
+ */
+function DriveConnectionNotice() {
+  const session = useWorld((s) => s.session);
+  const company = useWorld((s) => s.company);
+  if (session?.role !== 'human_staff' || company?.driveFolderUrl) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border border-arcane/40 bg-arcane/5 px-3 py-2 text-xs text-arcane-soft">
+      파일 등을 채팅이나 자료 공유 시에 드라이브에 연결해야 합니다. 대표님께 부탁하세요.
+    </div>
+  );
+}
+
 function OfficeScreen() {
   const order = useWorld((s) => s.employeeOrder);
   const employees = useWorld((s) => s.employees);
@@ -254,6 +270,7 @@ function OfficeScreen() {
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-4">
       <EasterEggBanner />
+      <DriveConnectionNotice />
       <div className="mb-3 flex flex-wrap gap-1.5">
         {PANELS.map(([id, label]) => (
           <Button key={id} size="sm" variant={openPanel === id ? 'primary' : 'ghost'} onClick={() => setPanel(id)}>

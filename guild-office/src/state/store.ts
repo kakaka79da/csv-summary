@@ -25,7 +25,7 @@ import {
 import { advanceAlongPath, findPath } from '@/lib/pathfinding';
 import { clamp, nid } from '@/lib/format';
 import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
-import { seedMemory, type MemoryAgreement } from '@/data/memorySeed';
+import { DRIVE_ROOT_FOLDER_URL, seedMemory, type MemoryAgreement } from '@/data/memorySeed';
 import {
   ADMIN_UNLOCK_CODE,
   EASTER_EGG_CODE,
@@ -208,6 +208,12 @@ export interface WorldActions {
    * 실제로 지워진다 — 개인 회사를 삭제하는 일은 되돌리기 어려운 큰 결정이기 때문이다.
    */
   requestCompanyDeletion: (reason: string) => { ok: boolean; error?: string };
+
+  /**
+   * 대표가 채팅·자료 공유에 쓸 구글 드라이브 폴더 링크를 설정하거나 해제한다.
+   * 실제 OAuth 연결이 아니라, 대표가 직접 만든 폴더의 공유 링크를 붙여넣는 방식이다.
+   */
+  setCompanyDriveLink: (url: string | null) => { ok: boolean; error?: string };
 
   /* ── 회사 창립 신청 (플랫폼 관리자 승인) ─────────────────────────────── */
 
@@ -1438,6 +1444,29 @@ export const useWorld = create<Store>()(
         return { ok: true };
       },
 
+      setCompanyDriveLink: (url) => {
+        const s = get();
+        if (s.session?.role !== 'ceo' || !s.company) {
+          return { ok: false, error: '대표만 설정할 수 있습니다.' };
+        }
+        const trimmed = url?.trim() || null;
+        if (trimmed && !/^https:\/\//.test(trimmed)) {
+          return { ok: false, error: 'https:// 로 시작하는 구글 드라이브 폴더 링크를 입력하세요.' };
+        }
+        set({
+          company: { ...s.company, driveFolderUrl: trimmed },
+          audit: audit(
+            s.audit,
+            s.session.accountName,
+            trimmed ? '구글 드라이브 연결' : '구글 드라이브 연결 해제',
+            s.company.name,
+            trimmed ?? '',
+          ),
+          ui: { ...s.ui, toast: trimmed ? '구글 드라이브를 연결했습니다.' : '구글 드라이브 연결을 해제했습니다.' },
+        });
+        return { ok: true };
+      },
+
       /* ── 이스터에그 ───────────────────────────────────────────────── */
       tryEasterEggCode: (code) => {
         const trimmed = code.trim();
@@ -1455,7 +1484,9 @@ export const useWorld = create<Store>()(
         if (trimmed === SIMULATION_MODE_CODE) {
           if (!get().session) get().loginDemo('ceo');
           if (!get().company) {
-            get().foundCompany({ ...COMPANY_DEFAULTS });
+            // 관리자/시뮬레이션 모드의 즉석 회사는 "제작자 소유"의 테스트용 드라이브
+            // 폴더로 미리 연결해 둔다 — 실제 창립 신청은 이렇게 자동으로 채워지지 않는다.
+            get().foundCompany({ ...COMPANY_DEFAULTS, driveFolderUrl: DRIVE_ROOT_FOLDER_URL });
             get().buildOffice();
           }
           if (Object.keys(get().employees).length < 3) get().summonEmployees();
@@ -1480,7 +1511,7 @@ export const useWorld = create<Store>()(
 
         if (!get().session) get().loginDemo('ceo');
         if (!get().company) {
-          get().foundCompany({ ...COMPANY_DEFAULTS });
+          get().foundCompany({ ...COMPANY_DEFAULTS, driveFolderUrl: DRIVE_ROOT_FOLDER_URL });
           get().buildOffice();
         }
         if (Object.keys(get().employees).length < 3) get().summonEmployees();

@@ -260,6 +260,8 @@ interface SeedSpec {
   scope: string;
   greeting: string;
   duties: string[];
+  /** 구글 드라이브가 연결되지 않았을 때, 이 직원의 성격대로 대표에게 연결을 요청하는 대사. */
+  driveRequestLine: string;
 }
 
 export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
@@ -275,6 +277,8 @@ export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
     scope: '업무 접수, 일정 조정, 결과 취합, 최종 보고',
     greeting: '접수와 취합, 그리고 최종 보고를 맡겠습니다. 지시는 저를 통해 내려 주시면 됩니다.',
     duties: ['업무 접수 및 분해', '일정 조정', '문서 검수·취합', '대표 최종 보고', '메일 발송'],
+    driveRequestLine:
+      '대표님, 취합한 문서와 보고 자료를 체계적으로 보관하려면 구글 드라이브 연결이 필요합니다. 설정에서 연결해 주시면 바로 정리하겠습니다.',
   },
   {
     id: 'emp_engineer',
@@ -288,6 +292,7 @@ export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
     scope: '시스템 설계, 코드 분석, 기술 검증, 복잡한 문제 해결',
     greeting: '분석과 검증을 담당합니다. 위험하거나 비용이 큰 작업은 반드시 승인부터 요청하겠습니다.',
     duties: ['자료·데이터 분석', '코드 및 시스템 검증', '기술 리스크 평가', '분석 결과 전달'],
+    driveRequestLine: '대용량 분석 파일은 로컬보다 드라이브가 안전합니다. 대표님, 설정에서 연결해 주시면 바로 씁니다.',
   },
   {
     id: 'emp_professor',
@@ -301,6 +306,8 @@ export const AI_EMPLOYEE_SEEDS: SeedSpec[] = [
     scope: '설득 문서, 영업 자료, 고객 대응, 대외 협력',
     greeting: '설득이 필요한 문서를 씁니다. 외부로 나가기 전에는 반드시 검토를 요청드립니다.',
     duties: ['제안서·영업자료 작성', '고객 대응 문안', '협상 시나리오', '대외 문서 검토 요청'],
+    driveRequestLine:
+      '고객·대외 자료를 안전하게 공유드리려면 드라이브 연결이 도움이 될 것 같아요. 대표님, 편하실 때 설정에서 연결해 주시겠어요?',
   },
 ];
 
@@ -403,6 +410,10 @@ export const COMPANY_DEFAULTS = {
   ceoPhone: '010-0000-0000',
   businessRegNo: '000-00-00000',
   ceoEmail: 'ceo@example.com',
+  // 실제 창립 신청에서는 구글 드라이브가 연결되어 있지 않다 — 대표가 설정에서
+  // 직접 폴더 링크를 붙여넣어야 한다. (관리자/시뮬레이션 모드의 즉석 회사만
+  // 예외적으로 제작자 소유 폴더로 미리 채워진다. store.tryEasterEggCode 참고.)
+  driveFolderUrl: null as string | null,
 };
 
 export const PLATFORM_MAKER = 'mkang';

@@ -19,6 +19,9 @@
 | 결제 | 없음 | 신규 | 구독/크레딧 결제 연동 |
 | 다중 사용자 | 없음 | 신규 | 회사(tenant) 단위 격리 |
 | 국가별 서버 | 지사 목록만 표시 | `components/panels/SidePanels.tsx` | 리전 라우팅 |
+| 구글 드라이브 연결 | 대표가 직접 만든 폴더 링크를 수동으로 붙여넣음 (`Company.driveFolderUrl`) | `components/panels/SidePanels.tsx` 의 `DriveConnectionSetting`, `store.setCompanyDriveLink` | OAuth 2.0(각 회사별 토큰), Drive API 업로드 프록시, 채팅/자료 첨부 시 자동 라우팅 |
+| 미연결 시 임시 저장 | 없음 (이 데모에는 서버가 없어 구현 불가) | 신규 | 서버 스토리지(S3 등) + TTL 기반 자동 삭제 배치 |
+| 채팅 파일 첨부 | 없음 (텍스트 메시지만) | `types/index.ts` 의 `Message`, `store.sendChat` | 첨부 필드 추가 + 업로드 API |
 
 ---
 
@@ -135,7 +138,27 @@ useEffect(() => {
 
 ---
 
-## 6. 지금 구조에서 그대로 가져갈 수 있는 것
+## 6. 회사별 구글 드라이브 자동 연결 (OAuth)
+
+지금은 대표가 직접 만든 폴더의 공유 링크를 붙여넣는 방식이다(`Company.driveFolderUrl`).
+"연결하기" 버튼 한 번으로 실제 구글 계정을 붙이려면:
+
+1. Google Cloud Console 에서 이 앱의 배포 도메인을 승인된 자바스크립트 원본으로 등록하고
+   OAuth 2.0 클라이언트 ID(웹 애플리케이션)를 발급한다 — **클라이언트 시크릿은 절대
+   프론트엔드 번들에 넣지 않는다.**
+2. 브라우저에서 Google Identity Services(또는 `@react-oauth/google`)로 PKCE 인가 코드
+   흐름을 실행해 임시 액세스 토큰을 받는다. 여기까지는 순수 클라이언트에서도 가능하다.
+3. **다만 액세스 토큰은 보통 1시간 안에 만료되고, 조용히 갱신하려면 리프레시 토큰이
+   필요하다 — 리프레시 토큰은 반드시 서버가 암호화해 보관해야 한다.** 그래서 "브라우저가
+   대표 대신 인가 코드를 받고, 서버가 토큰 교환·갱신·업로드 프록시를 맡는" 구조가 된다.
+4. 서버가 `companies.google_drive_refresh_token_ref`(비밀 관리 서비스 참조, 원문 아님)를
+   저장하고, `POST /api/companies/:id/drive/files` 같은 업로드 프록시 엔드포인트를 연다.
+5. 채팅·자료 공유에서 일정 크기 이상 파일은 이 프록시로 라우팅하고, 그 외(또는 미연결
+   회사)는 만료 정책이 있는 임시 스토리지에 넣는다.
+
+---
+
+## 7. 지금 구조에서 그대로 가져갈 수 있는 것
 
 - `src/types/index.ts` — 서버와 공유하는 계약. 패키지로 분리하면 좋다.
 - `src/state/agentMachine.ts` — 상태 전이 규칙. **서버에서도 같은 파일을 쓰세요.**

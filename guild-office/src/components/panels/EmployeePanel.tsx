@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { AGENT_STATE_LABEL, DIFFICULTY_LABEL, clock, duration, money } from '@/lib/format';
-import { roomById } from '@/data/seed';
+import { AI_EMPLOYEE_SEEDS, roomById } from '@/data/seed';
 import ApiWizard from '@/components/onboarding/ApiWizard';
 import CharacterPortrait from '@/components/office/CharacterPortrait';
 import {
@@ -167,6 +167,11 @@ export default function EmployeePanel({ employeeId }: { employeeId: string }) {
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4">
         {tab === 'chat' ? (
           <div ref={scrollRef} className="space-y-2">
+            {!company.driveFolderUrl ? (
+              <div className="rounded-lg border border-arcane/40 bg-arcane/5 px-3 py-2 text-xs text-arcane-soft">
+                💬 {AI_EMPLOYEE_SEEDS.find((s) => s.id === employeeId)?.driveRequestLine}
+              </div>
+            ) : null}
             {(chats ?? []).map((m) => {
               const k = KIND_STYLE[m.kind];
               const mine = m.from === 'ceo';

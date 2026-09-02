@@ -360,6 +360,7 @@ export function SettingsPanel() {
         <Row k="월간 AI 예산" v={money(company.monthlyBudgetUsd, company.currency)} />
       </div>
 
+      {session?.role === 'ceo' ? <DriveConnectionSetting company={company} /> : null}
       {session?.role === 'ceo' ? <AdminMessageThread company={company} /> : null}
       {session?.role === 'ceo' ? <CompanyDeletionRequest /> : null}
       <div className="rounded-xl border border-ember/40 bg-ember/5 p-4">
@@ -442,6 +443,96 @@ export function PlatformMakerSetting() {
       </div>
       {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
       <p className="mt-1 text-[11px] text-stone-500">현재: {current}</p>
+    </div>
+  );
+}
+
+/**
+ * 대표가 채팅·자료 공유에 쓸 구글 드라이브 폴더 링크를 연결하는 곳.
+ *
+ * ⚠️ 실제 OAuth 로 구글 계정을 연결하지 않는다 — 대표가 자신의 드라이브에 폴더를
+ * 만들고 "링크가 있는 모든 사용자" 등으로 공유 설정을 한 뒤 그 링크를 여기에
+ * 붙여넣는 방식이다. 자동 업로드·자동 라우팅·미연결 시 서버 임시 저장은 모두
+ * 백엔드가 있어야 가능한 항목이라 이 데모에는 없다 (docs/BACKEND-MIGRATION.md).
+ */
+function DriveConnectionSetting({ company }: { company: Company }) {
+  const setLink = useWorld((s) => s.setCompanyDriveLink);
+  const [value, setValue] = useState(company.driveFolderUrl ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(!company.driveFolderUrl);
+
+  return (
+    <div className="rounded-xl border border-vital/40 bg-vital/5 p-4">
+      <div className="flex items-center justify-between">
+        <SectionTitle className="mb-0">구글 드라이브 연결</SectionTitle>
+        <Badge tone={company.driveFolderUrl ? 'vital' : 'neutral'}>
+          {company.driveFolderUrl ? '연결됨' : '연결 안 됨'}
+        </Badge>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-stone-400">
+        채팅과 자료 공유에서 오가는 대용량 파일은 여기 연결한 드라이브 폴더를 기준으로
+        안내됩니다. 연결하지 않으면 사원·AI 직원 모두에게 대표님께 연결을 요청하는
+        안내가 표시됩니다.
+      </p>
+
+      <button
+        type="button"
+        onClick={() => setShowGuide((v) => !v)}
+        className="mt-2 text-[11px] text-arcane-soft underline decoration-dotted"
+      >
+        {showGuide ? '연결 방법 가이드 접기 ▲' : '연결 방법 가이드 보기 ▼'}
+      </button>
+      {showGuide ? (
+        <ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px] text-stone-400">
+          <li>구글 드라이브에서 회사 자료용 폴더를 새로 만듭니다.</li>
+          <li>폴더 우클릭 → 공유 → "링크가 있는 모든 사용자"(또는 필요한 인원)로 권한을 설정합니다.</li>
+          <li>"링크 복사"를 눌러 폴더 링크를 복사합니다.</li>
+          <li>아래 입력칸에 붙여넣고 저장합니다.</li>
+        </ol>
+      ) : null}
+
+      <div className="mt-3 flex gap-2">
+        <TextInput
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+          }}
+          placeholder="https://drive.google.com/drive/folders/..."
+        />
+        <Button
+          size="sm"
+          onClick={() => {
+            const r = setLink(value);
+            if (!r.ok) setError(r.error ?? '저장할 수 없습니다.');
+          }}
+        >
+          저장
+        </Button>
+        {company.driveFolderUrl ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setValue('');
+              setLink(null);
+            }}
+          >
+            연결 해제
+          </Button>
+        ) : null}
+      </div>
+      {error ? <p className="mt-1 text-[11px] text-ember">{error}</p> : null}
+      {company.driveFolderUrl ? (
+        <a
+          href={company.driveFolderUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block text-[11px] text-gold hover:underline"
+        >
+          연결된 폴더 열기 →
+        </a>
+      ) : null}
     </div>
   );
 }

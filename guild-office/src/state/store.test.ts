@@ -779,6 +779,42 @@ describe('사원 가입·승인', () => {
   });
 });
 
+describe('구글 드라이브 폴더 링크 연결', () => {
+  it('대표는 https 링크를 저장하고 다시 해제할 수 있다', () => {
+    bootstrap();
+    expect(useWorld.getState().company?.driveFolderUrl).toBeNull();
+
+    const r1 = useWorld.getState().setCompanyDriveLink('https://drive.google.com/drive/folders/abc123');
+    expect(r1.ok).toBe(true);
+    expect(useWorld.getState().company?.driveFolderUrl).toBe('https://drive.google.com/drive/folders/abc123');
+
+    const r2 = useWorld.getState().setCompanyDriveLink(null);
+    expect(r2.ok).toBe(true);
+    expect(useWorld.getState().company?.driveFolderUrl).toBeNull();
+  });
+
+  it('https 로 시작하지 않는 값은 거절한다', () => {
+    bootstrap();
+    const r = useWorld.getState().setCompanyDriveLink('drive.google.com/folders/x');
+    expect(r.ok).toBe(false);
+    expect(useWorld.getState().company?.driveFolderUrl).toBeNull();
+  });
+
+  it('대표가 아니면 설정할 수 없다', () => {
+    bootstrap();
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('platform_admin');
+    const r = useWorld.getState().setCompanyDriveLink('https://drive.google.com/drive/folders/abc123');
+    expect(r.ok).toBe(false);
+  });
+
+  it('시뮬레이션 모드(mkang428428@@)로 만든 회사는 제작자 소유 폴더로 미리 연결되어 있다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().tryEasterEggCode('mkang428428@@');
+    expect(useWorld.getState().company?.driveFolderUrl).toContain('drive.google.com');
+  });
+});
+
 describe('회사 삭제 — 플랫폼 관리자 승인 필요', () => {
   it('대표가 요청하면 승인 대기 목록에 들어간다', () => {
     bootstrap();

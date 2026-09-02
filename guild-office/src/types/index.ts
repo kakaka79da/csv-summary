@@ -48,6 +48,15 @@ export interface Company {
   ceoPhone: string;
   businessRegNo: string;
   ceoEmail: string;
+
+  /**
+   * 회사가 채팅·자료 공유에 쓰기로 정한 구글 드라이브 폴더 링크. null 이면 "연결 안 됨"이다.
+   *
+   * ⚠️ 이 프로토타입은 실제 OAuth 로 구글 계정을 연결하지 않는다 — 대표가 자신의
+   * 드라이브에 폴더를 만들고 공유 설정을 한 뒤 그 링크를 직접 붙여넣는 방식이다.
+   * 자동 업로드·자동 라우팅은 백엔드가 있어야 하는 항목이다(docs/BACKEND-MIGRATION.md).
+   */
+  driveFolderUrl: string | null;
 }
 
 export type CeoGender = 'male' | 'female';
