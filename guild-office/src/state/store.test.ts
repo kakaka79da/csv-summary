@@ -45,6 +45,26 @@ function emp(id: string): Employee {
   return useWorld.getState().employees[id];
 }
 
+/** bootstrap() 이후 회사에 사원 한 명을 가입 신청시키고 대표가 승인한 뒤, 다시 대표로 로그인해 돌아온다. */
+function approveHumanStaff(name: string, email: string): string {
+  const code = useWorld.getState().company!.code;
+  useWorld.getState().logout();
+  const r = useWorld.getState().applyAsHumanStaff({
+    name,
+    email,
+    phone: '',
+    companyCode: code,
+    role: '사원',
+    appearanceId: 'scribe',
+  });
+  if (!r.ok) throw new Error(r.error);
+  const staffId = useWorld.getState().session!.humanStaffId!;
+  useWorld.getState().logout();
+  useWorld.getState().loginDemo('ceo');
+  useWorld.getState().decideHumanStaffApplication(staffId, 'approved');
+  return staffId;
+}
+
 /**
  * 이스터에그 대본은 실제 벽시계 시각(Date.now())을 기준으로 진행되므로,
  * 테스트에서 실제로 20분을 기다리지 않고도 검증할 수 있도록 매 스텝마다
@@ -998,5 +1018,122 @@ describe('대표 ↔ 플랫폼 관리자 메시지', () => {
     useWorld.getState().loginDemo('human_staff');
     const r = useWorld.getState().sendPlatformMessage({ threadKey: 'x', companyName: '-', text: '문의' });
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('부서·전사 공용 채팅방', () => {
+  it('회사를 창립하면 전사 공용 방(전체)이 자동으로 생긴다', () => {
+    bootstrap();
+    const s = useWorld.getState();
+    expect(s.chatRoomOrder).toContain('room_all');
+    expect(s.chatRooms['room_all'].kind).toBe('company_wide');
+  });
+
+  it('대표는 부서 채팅방을 만들고, 이름이 비어 있으면 거절한다', () => {
+    bootstrap();
+    const r = useWorld.getState().createTeamRoom('기술팀');
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().chatRooms[r.roomId!].name).toBe('기술팀');
+
+    const empty = useWorld.getState().createTeamRoom('   ');
+    expect(empty.ok).toBe(false);
+  });
+
+  it('대표가 아니면 채팅방을 만들 수 없다', () => {
+    bootstrap();
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    const r = useWorld.getState().createTeamRoom('영업팀');
+    expect(r.ok).toBe(false);
+  });
+
+  it('전사 공용 방에는 승인된 사원이면 누구나(멤버 등록 없이) 메시지를 보낼 수 있다', () => {
+    bootstrap();
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    const r = useWorld.getState().sendRoomMessage('room_all', '안녕하세요!');
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().chatRoomMessages['room_all']).toHaveLength(1);
+  });
+
+  it('부서 채팅방은 멤버가 아닌 사원이 메시지를 보낼 수 없다', () => {
+    bootstrap();
+    const roomId = useWorld.getState().createTeamRoom('기술팀').roomId!;
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    const r = useWorld.getState().sendRoomMessage(roomId, '들어가도 될까요?');
+    expect(r.ok).toBe(false);
+  });
+
+  it('대표가 초대하면 즉시 멤버가 되고, AI 직원의 추천으로도 표시할 수 있다', () => {
+    bootstrap();
+    const roomId = useWorld.getState().createTeamRoom('기술팀').roomId!;
+    const kyle = useWorld.getState().employeeOrder[1]; // emp_engineer(카일)
+
+    const r = useWorld.getState().proposeRoomInvite({
+      roomId,
+      inviteeId: kyle,
+      inviteeKind: 'ai',
+      proposedByKind: 'ai',
+      proposedByName: '카일',
+    });
+    expect(r.ok).toBe(true);
+
+    const s = useWorld.getState();
+    expect(s.chatRooms[roomId].memberIds).toContain(kyle);
+    const invite = s.chatRoomInvites[0];
+    expect(invite.status).toBe('approved');
+    expect(invite.proposedByKind).toBe('ai');
+  });
+
+  it('사원이 초대를 제안하면 대기 상태이고, 대표가 승인해야 멤버가 된다', () => {
+    bootstrap();
+    const roomId = useWorld.getState().createTeamRoom('기술팀').roomId!;
+    const kyle = useWorld.getState().employeeOrder[1];
+    const staffId = approveHumanStaff('김철수', 'chulsoo@example.com');
+
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    const r = useWorld.getState().proposeRoomInvite({ roomId, inviteeId: kyle, inviteeKind: 'ai' });
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().chatRooms[roomId].memberIds).not.toContain(kyle);
+
+    const inviteId = useWorld.getState().chatRoomInvites[0].id;
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    useWorld.getState().decideRoomInvite(inviteId, 'approved');
+
+    const s = useWorld.getState();
+    expect(s.chatRooms[roomId].memberIds).toContain(kyle);
+    expect(s.chatRoomInvites.find((i) => i.id === inviteId)?.status).toBe('approved');
+    expect(s.humanStaff[staffId]).toBeTruthy();
+  });
+
+  it('전사 공용 방은 이미 전원이 멤버이므로 초대를 제안할 수 없다', () => {
+    bootstrap();
+    const kyle = useWorld.getState().employeeOrder[1];
+    const r = useWorld.getState().proposeRoomInvite({ roomId: 'room_all', inviteeId: kyle, inviteeKind: 'ai' });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('사원 자기보고 업무 노트', () => {
+  it('사원은 본인의 업무 노트를 남기고, 대표는 남길 수 없다', () => {
+    bootstrap();
+    const staffId = approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+
+    const r = useWorld.getState().updateOwnTaskNote('디자인 시안 작업 중');
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().humanStaff[staffId].currentTaskNote).toBe('디자인 시안 작업 중');
+
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    const asCeo = useWorld.getState().updateOwnTaskNote('대표가 대신 남김');
+    expect(asCeo.ok).toBe(false);
   });
 });

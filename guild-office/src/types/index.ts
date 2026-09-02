@@ -247,6 +247,10 @@ export interface HumanStaffRecord {
   monthlySalaryUsd: number | null;
   benefits: string[];
 
+  /** 본인이 직접 입력하는 "지금 뭐 하고 있는지" 한 줄. 근태·현황판에 표시된다. */
+  currentTaskNote: string | null;
+  currentTaskUpdatedAt: number | null;
+
   requestedAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
@@ -583,6 +587,59 @@ export interface AuditEntry {
   action: string;
   target: string;
   detail: string;
+}
+
+/* ───────────────────────── 채팅방 (부서·전사 공용) ──────────────────────── */
+
+/**
+ * 1:1 대화(Message/chats)와 별개인 단체 채팅방. "team" 은 부서별로 대표가 만들고,
+ * "company_wide" 는 회사 창립 시 자동으로 하나 생기는 전사 공용 방이다 —
+ * company_wide 방은 멤버 목록을 따로 저장하지 않고, 항상 "현재 재직 중인
+ * 전원"으로 렌더링 시점에 계산한다(입사/퇴사와 동기화할 필요가 없도록).
+ */
+export type ChatRoomKind = 'team' | 'company_wide';
+
+export interface ChatRoom {
+  id: string;
+  kind: ChatRoomKind;
+  name: string;
+  /** kind: 'team' 일 때만 의미가 있다. company_wide 는 항상 전원이 멤버다. */
+  memberIds: string[];
+  createdAt: number;
+  createdBy: string;
+}
+
+export type ChatRoomAuthorKind = 'ceo' | 'ai' | 'human';
+
+export interface ChatRoomMessage {
+  id: string;
+  roomId: string;
+  authorId: string;
+  authorKind: ChatRoomAuthorKind;
+  authorName: string;
+  text: string;
+  ts: number;
+}
+
+export type ChatRoomInviteStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * 부서 채팅방 초대. 대표가 직접 초대하면 즉시 승인 처리되고, 사원이 제안하면
+ * 대표 승인이 필요하다. "AI 가 제안"은 이 앱에 AI 의 자율 행동이 없으므로,
+ * 대표가 초대를 만들 때 어떤 AI 직원의 추천으로 표시할지 직접 고르는 방식으로
+ * 흉내낸다(proposedByKind: 'ai') — 실제로 클릭하는 주체는 항상 사람이다.
+ */
+export interface ChatRoomInvite {
+  id: string;
+  roomId: string;
+  inviteeId: string;
+  inviteeKind: 'ai' | 'human';
+  inviteeName: string;
+  proposedByKind: ChatRoomAuthorKind;
+  proposedByName: string;
+  status: ChatRoomInviteStatus;
+  createdAt: number;
+  decidedAt: number | null;
 }
 
 /* ───────────────────────────── 대화 ─────────────────────────────────── */

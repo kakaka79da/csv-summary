@@ -51,6 +51,10 @@ import type {
   ArchivedCompany,
   Artifact,
   AuditEntry,
+  ChatRoom,
+  ChatRoomAuthorKind,
+  ChatRoomInvite,
+  ChatRoomMessage,
   Company,
   CompanyApplication,
   Difficulty,
@@ -72,6 +76,9 @@ import type {
   TaskEstimate,
   ToolId,
 } from '@/types';
+
+/** 전사 공용 채팅방은 회사마다 하나뿐이므로 고정 id 를 쓴다. */
+export const ROOM_ALL_ID = 'room_all';
 
 /* ────────────────────────────── 상태 형태 ────────────────────────────── */
 
@@ -128,9 +135,29 @@ export interface WorldState {
   audit: AuditEntry[];
   chats: Record<string, Message[]>;
 
+  /**
+   * 1:1 대화(chats)와 별개인 단체 채팅방(부서·전사 공용). "전사 공용" 방은
+   * 회사 창립 시 자동으로 하나 생기며 항상 ROOM_ALL_ID 를 쓴다.
+   */
+  chatRooms: Record<string, ChatRoom>;
+  chatRoomOrder: string[];
+  chatRoomMessages: Record<string, ChatRoomMessage[]>;
+  chatRoomInvites: ChatRoomInvite[];
+
   ui: {
     selectedEmployeeId: string | null;
-    openPanel: null | 'missions' | 'approvals' | 'cost' | 'audit' | 'dungeon' | 'people' | 'settings' | 'graph';
+    openPanel:
+      | null
+      | 'missions'
+      | 'approvals'
+      | 'cost'
+      | 'audit'
+      | 'dungeon'
+      | 'people'
+      | 'settings'
+      | 'graph'
+      | 'rooms'
+      | 'status';
     /** 면담 대기열 (순서대로 1:1 면담) */
     interviewQueue: string[];
     toast: string | null;
@@ -300,6 +327,38 @@ export interface WorldActions {
 
   sendChat: (employeeId: string, text: string) => void;
 
+  /* ── 부서·전사 공용 채팅방 ─────────────────────────────────────────── */
+
+  /** 대표가 부서 채팅방을 만든다. 대표는 모든 방의 암묵적 멤버다(memberIds 에는 넣지 않는다). */
+  createTeamRoom: (name: string) => { ok: boolean; error?: string; roomId?: string };
+
+  /**
+   * 방에 메시지를 보낸다. 대표는 모든 방에, 사원은 자신이 멤버인 방(또는 전사
+   * 공용 방)에만 보낼 수 있다. AI 직원은 이 채팅방 기능에서는 아직 스스로
+   * 말하지 않는다 — 기존 1:1 대화(chats)에서만 AI 응답이 오간다.
+   */
+  sendRoomMessage: (roomId: string, text: string) => { ok: boolean; error?: string };
+
+  /**
+   * 방에 누군가를 초대하자고 제안한다. 대표가 직접 부르면 즉시 확정되고,
+   * 사원이 제안하면 대표 승인이 필요하다. AI 직원의 "제안"은 이 앱에 자율
+   * 행동이 없으므로, 대표가 초대를 만들 때 어떤 AI 의 추천으로 표시할지
+   * 직접 고르는 방식으로 흉내낸다(proposedByKind:'ai').
+   */
+  proposeRoomInvite: (input: {
+    roomId: string;
+    inviteeId: string;
+    inviteeKind: 'ai' | 'human';
+    proposedByKind?: ChatRoomAuthorKind;
+    proposedByName?: string;
+  }) => { ok: boolean; error?: string };
+
+  /** 대표가 대기 중인 초대를 승인·거절한다. */
+  decideRoomInvite: (inviteId: string, decision: 'approved' | 'rejected') => void;
+
+  /** 사원이 "지금 뭐 하고 있는지" 한 줄을 스스로 남긴다(본인 기록만). */
+  updateOwnTaskNote: (text: string) => { ok: boolean; error?: string };
+
   /** 기억 한 줄을 append 한다 (교훈/사건/선호/정정). 기존 기억은 지우지 않는다. */
   addMemoryRecord: (
     employeeId: string,
@@ -341,6 +400,10 @@ const initialState: WorldState = {
   ledger: [],
   audit: [],
   chats: {},
+  chatRooms: {},
+  chatRoomOrder: [],
+  chatRoomMessages: {},
+  chatRoomInvites: [],
   ui: { selectedEmployeeId: null, openPanel: null, interviewQueue: [], toast: null },
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
   easterEgg: initialEasterEgg,
@@ -353,6 +416,11 @@ function audit(list: AuditEntry[], actor: string, action: string, target: string
   const entry: AuditEntry = { id: nid('aud'), ts: Date.now(), actor, action, target, detail };
   // 최신 300건만 보관한다.
   return [entry, ...list].slice(0, 300);
+}
+
+/** 회사 창립 시 자동으로 만드는 전사 공용 채팅방. */
+function makeCompanyWideRoom(ceoName: string): ChatRoom {
+  return { id: ROOM_ALL_ID, kind: 'company_wide', name: '전체', memberIds: [], createdAt: Date.now(), createdBy: ceoName };
 }
 
 function pushMessage(
@@ -544,8 +612,11 @@ export const useWorld = create<Store>()(
         // 이어서 진행한다 — loginDemo 의 단계 복원 로직 참고.)
         const code = generateCompanyCode(app.founding.name);
         const company: Company = { ...app.founding, code, foundedAt: Date.now() };
+        const allRoom = makeCompanyWideRoom(company.ceoName);
         set({
           company,
+          chatRooms: { [allRoom.id]: allRoom },
+          chatRoomOrder: [allRoom.id],
           companyApplications: {
             ...s.companyApplications,
             [id]: { ...app, status: 'approved', decidedAt: Date.now(), decidedBy, note: note?.trim() || null },
@@ -581,10 +652,13 @@ export const useWorld = create<Store>()(
         const s = get();
         const code = generateCompanyCode(input.name);
         const company: Company = { ...input, code, foundedAt: Date.now() };
+        const allRoom = makeCompanyWideRoom(input.ceoName);
         set({
           company,
           phase: 'office_build',
           session: s.session ? { ...s.session, accountName: input.ceoName } : s.session,
+          chatRooms: { [allRoom.id]: allRoom },
+          chatRoomOrder: [allRoom.id],
           audit: audit(
             s.audit,
             input.ceoName,
@@ -1019,6 +1093,10 @@ export const useWorld = create<Store>()(
               approvals: [],
               ledger: [],
               chats: {},
+              chatRooms: {},
+              chatRoomOrder: [],
+              chatRoomMessages: {},
+              chatRoomInvites: [],
               tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
               easterEgg: initialEasterEgg,
               simulationMode: false,
@@ -1327,6 +1405,8 @@ export const useWorld = create<Store>()(
           appearanceId: input.appearanceId,
           status: 'pending',
           workMode: 'not_started',
+          currentTaskNote: null,
+          currentTaskUpdatedAt: null,
           monthlySalaryUsd: null,
           benefits: [],
           requestedAt: Date.now(),
@@ -1560,6 +1640,159 @@ export const useWorld = create<Store>()(
         set({ chats });
       },
 
+      /* ── 부서·전사 공용 채팅방 ────────────────────────────────────────── */
+      createTeamRoom: (name) => {
+        const s = get();
+        if (s.session?.role !== 'ceo' || !s.company) return { ok: false, error: '대표만 만들 수 있습니다.' };
+        const trimmed = name.trim();
+        if (!trimmed) return { ok: false, error: '방 이름을 입력하세요.' };
+        const id = nid('room');
+        const room: ChatRoom = {
+          id,
+          kind: 'team',
+          name: trimmed,
+          memberIds: [],
+          createdAt: Date.now(),
+          createdBy: s.session.accountName,
+        };
+        set({
+          chatRooms: { ...s.chatRooms, [id]: room },
+          chatRoomOrder: [...s.chatRoomOrder, id],
+          audit: audit(s.audit, s.session.accountName, '채팅방 생성', trimmed, ''),
+        });
+        return { ok: true, roomId: id };
+      },
+
+      sendRoomMessage: (roomId, text) => {
+        const s = get();
+        const room = s.chatRooms[roomId];
+        if (!room || !s.session || !text.trim()) return { ok: false, error: '보낼 수 없습니다.' };
+
+        let authorId: string;
+        let authorKind: ChatRoomAuthorKind;
+        let authorName: string;
+        if (s.session.role === 'ceo') {
+          authorId = 'ceo';
+          authorKind = 'ceo';
+          authorName = s.session.accountName;
+        } else if (s.session.role === 'human_staff' && s.session.humanStaffId) {
+          const rec = s.humanStaff[s.session.humanStaffId];
+          if (!rec || rec.status !== 'approved') return { ok: false, error: '승인된 사원만 보낼 수 있습니다.' };
+          const isMember = room.kind === 'company_wide' || room.memberIds.includes(rec.id);
+          if (!isMember) return { ok: false, error: '이 방의 멤버가 아닙니다.' };
+          authorId = rec.id;
+          authorKind = 'human';
+          authorName = rec.name;
+        } else {
+          return { ok: false, error: '대표 또는 사원만 보낼 수 있습니다.' };
+        }
+
+        const msg: ChatRoomMessage = { id: nid('rmsg'), roomId, authorId, authorKind, authorName, text: text.trim(), ts: Date.now() };
+        set({ chatRoomMessages: { ...s.chatRoomMessages, [roomId]: [...(s.chatRoomMessages[roomId] ?? []), msg] } });
+        return { ok: true };
+      },
+
+      proposeRoomInvite: (input) => {
+        const s = get();
+        const room = s.chatRooms[input.roomId];
+        if (!room) return { ok: false, error: '방을 찾을 수 없습니다.' };
+        if (room.kind !== 'team') return { ok: false, error: '전사 공용 방은 이미 전원이 멤버입니다.' };
+        if (room.memberIds.includes(input.inviteeId)) return { ok: false, error: '이미 멤버입니다.' };
+
+        const inviteeName =
+          input.inviteeKind === 'ai' ? s.employees[input.inviteeId]?.name : s.humanStaff[input.inviteeId]?.name;
+        if (!inviteeName) return { ok: false, error: '대상을 찾을 수 없습니다.' };
+
+        if (s.session?.role === 'ceo') {
+          const proposedByKind = input.proposedByKind ?? 'ceo';
+          const proposedByName = proposedByKind === 'ai' ? input.proposedByName?.trim() || '대표' : s.session.accountName;
+          const invite: ChatRoomInvite = {
+            id: nid('rinv'),
+            roomId: input.roomId,
+            inviteeId: input.inviteeId,
+            inviteeKind: input.inviteeKind,
+            inviteeName,
+            proposedByKind,
+            proposedByName,
+            status: 'approved',
+            createdAt: Date.now(),
+            decidedAt: Date.now(),
+          };
+          set({
+            chatRoomInvites: [invite, ...s.chatRoomInvites],
+            chatRooms: { ...s.chatRooms, [room.id]: { ...room, memberIds: [...room.memberIds, input.inviteeId] } },
+            audit: audit(s.audit, s.session.accountName, '채팅방 초대', `${room.name} · ${inviteeName}`, ''),
+          });
+          return { ok: true };
+        }
+
+        if (s.session?.role === 'human_staff' && s.session.humanStaffId) {
+          const rec = s.humanStaff[s.session.humanStaffId];
+          if (!rec || rec.status !== 'approved') return { ok: false, error: '승인된 사원만 제안할 수 있습니다.' };
+          const invite: ChatRoomInvite = {
+            id: nid('rinv'),
+            roomId: input.roomId,
+            inviteeId: input.inviteeId,
+            inviteeKind: input.inviteeKind,
+            inviteeName,
+            proposedByKind: 'human',
+            proposedByName: rec.name,
+            status: 'pending',
+            createdAt: Date.now(),
+            decidedAt: null,
+          };
+          set({
+            chatRoomInvites: [invite, ...s.chatRoomInvites],
+            ui: { ...s.ui, toast: '초대를 제안했습니다. 대표 승인이 필요합니다.' },
+          });
+          return { ok: true };
+        }
+
+        return { ok: false, error: '대표 또는 사원만 제안할 수 있습니다.' };
+      },
+
+      decideRoomInvite: (inviteId, decision) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return;
+        const invite = s.chatRoomInvites.find((i) => i.id === inviteId);
+        if (!invite || invite.status !== 'pending') return;
+        const chatRoomInvites = s.chatRoomInvites.map((i) =>
+          i.id === inviteId ? { ...i, status: decision, decidedAt: Date.now() } : i,
+        );
+        const room = s.chatRooms[invite.roomId];
+        const chatRooms =
+          decision === 'approved' && room && !room.memberIds.includes(invite.inviteeId)
+            ? { ...s.chatRooms, [room.id]: { ...room, memberIds: [...room.memberIds, invite.inviteeId] } }
+            : s.chatRooms;
+        set({
+          chatRoomInvites,
+          chatRooms,
+          audit: audit(
+            s.audit,
+            s.session.accountName,
+            decision === 'approved' ? '채팅방 초대 승인' : '채팅방 초대 거절',
+            `${room?.name ?? '-'} · ${invite.inviteeName}`,
+            '',
+          ),
+        });
+      },
+
+      updateOwnTaskNote: (text) => {
+        const s = get();
+        if (s.session?.role !== 'human_staff' || !s.session.humanStaffId) {
+          return { ok: false, error: '사원 계정만 남길 수 있습니다.' };
+        }
+        const rec = s.humanStaff[s.session.humanStaffId];
+        if (!rec) return { ok: false, error: '기록을 찾을 수 없습니다.' };
+        set({
+          humanStaff: {
+            ...s.humanStaff,
+            [rec.id]: { ...rec, currentTaskNote: text.trim() || null, currentTaskUpdatedAt: Date.now() },
+          },
+        });
+        return { ok: true };
+      },
+
       /* ── 개인 기억 ─────────────────────────────────────────────────── */
       addMemoryRecord: (employeeId, input) => {
         const s = get();
@@ -1644,6 +1877,10 @@ export const useWorld = create<Store>()(
         ledger: s.ledger,
         audit: s.audit,
         chats: s.chats,
+        chatRooms: s.chatRooms,
+        chatRoomOrder: s.chatRoomOrder,
+        chatRoomMessages: s.chatRoomMessages,
+        chatRoomInvites: s.chatRoomInvites,
         tutorial: s.tutorial,
       }),
     },

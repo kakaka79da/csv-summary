@@ -15,6 +15,8 @@ import OfficeCanvas from '@/components/office/OfficeCanvas';
 import EmployeePanel from '@/components/panels/EmployeePanel';
 import MissionBoard from '@/components/missions/MissionBoard';
 import RelationshipGraph from '@/components/graph/RelationshipGraph';
+import ChatRoomsPanel from '@/components/chat/ChatRoomsPanel';
+import StatusDashboard from '@/components/status/StatusDashboard';
 import ApprovalCenter from '@/components/approvals/ApprovalCenter';
 import CostDashboard from '@/components/cost/CostDashboard';
 import AuditLog from '@/components/audit/AuditLog';
@@ -199,6 +201,8 @@ function AppHeader() {
 const PANELS = [
   ['missions', '미션 · 퀘스트'],
   ['dungeon', '프로젝트 던전'],
+  ['rooms', '채팅방'],
+  ['status', '근태 · 현황판'],
   ['approvals', '대표 승인 센터'],
   ['cost', '비용 · API 사용량'],
   ['people', '조직 · 지사'],
@@ -331,6 +335,8 @@ function OfficeScreen() {
         >
           {openPanel === 'missions' ? <MissionBoard mode="list" /> : null}
           {openPanel === 'dungeon' ? <MissionBoard mode="dungeon" /> : null}
+          {openPanel === 'rooms' ? <ChatRoomsPanel /> : null}
+          {openPanel === 'status' ? <StatusDashboard /> : null}
           {openPanel === 'approvals' ? <ApprovalCenter /> : null}
           {openPanel === 'cost' ? <CostDashboard /> : null}
           {openPanel === 'people' ? <PeoplePanel /> : null}
