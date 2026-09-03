@@ -48,7 +48,11 @@ export default function WeatherWidget() {
   return (
     <span className="relative">
       <Tooltip
-        text="이 기기의 로컬 시각과 현위치 날씨입니다. 눌러서 다시 불러오거나, 화면 효과를 끄거나, 날씨를 직접 골라 볼 수 있습니다."
+        text={
+          open
+            ? undefined
+            : '이 기기의 로컬 시각과 현위치 날씨입니다. 눌러서 다시 불러오거나, 화면 효과를 끄거나, 날씨를 직접 골라 볼 수 있습니다.'
+        }
         placement="bottom"
       >
         <button
@@ -69,7 +73,7 @@ export default function WeatherWidget() {
       </Tooltip>
 
       {open ? (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-72 rounded-xl border border-stone-700 bg-stone-950/97 p-3 text-left shadow-rune">
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-72 rounded-xl border border-stone-700 bg-stone-950 p-3 text-left shadow-rune">
           <div className="text-xs text-stone-200">
             {formatLocalDate(now)} {formatLocalTime(now)} · {DAY_PHASE_LABEL[phase]}
           </div>

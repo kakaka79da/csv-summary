@@ -147,7 +147,9 @@ export default function OfficeCanvas() {
   const chats = useWorld((s) => s.chats);
   const humanStaff = useWorld((s) => s.humanStaff);
   const selectedId = useWorld((s) => s.ui.selectedEmployeeId);
+  const selectedStaffId = useWorld((s) => s.ui.selectedStaffId);
   const select = useWorld((s) => s.selectEmployee);
+  const selectStaff = useWorld((s) => s.selectStaff);
   const sendToRoom = useWorld((s) => s.sendEmployeeToRoom);
   const setToast = useWorld((s) => s.setToast);
   const weather = useWorld((s) => s.weather);
@@ -423,7 +425,19 @@ export default function OfficeCanvas() {
           const a = EMPLOYEE_APPEARANCES[r.appearanceId];
           const spot = HUMAN_LOUNGE_SPOTS[i % HUMAN_LOUNGE_SPOTS.length];
           return (
-            <g key={r.id} transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`}>
+            <g
+              key={r.id}
+              transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`}
+              onClick={() => selectStaff(r.id)}
+              style={{ cursor: 'pointer' }}
+              role="button"
+              aria-label={`${r.name} 사원 정보 보기`}
+            >
+              <title>{`클릭 — ${r.name} 사원의 정보와 1:1 대화를 엽니다`}</title>
+              {/* 클릭 판. 스프라이트에는 비어 있는 픽셀이 많아, 캐릭터 근처 어디를 눌러도
+                  방(더블클릭 판)이 아니라 사원이 잡히도록 판을 하나 깔아 준다. */}
+              <StaffHitArea />
+              {selectedStaffId === r.id ? <SelectRing /> : null}
               <g transform={`scale(${SX} ${SY})`}>
                 <CharacterSprite palette={a.palette} sigil={a.sigil} state="idle" jobClass={a.jobClass} gender={a.gender} />
               </g>
@@ -451,7 +465,20 @@ export default function OfficeCanvas() {
           const a = EMPLOYEE_APPEARANCES[r.appearanceId];
           const spot = HUMAN_WAITING_SPOTS[i % HUMAN_WAITING_SPOTS.length];
           return (
-            <g key={r.id} transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`} opacity={0.7}>
+            <g
+              key={r.id}
+              transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`}
+              opacity={0.7}
+              onClick={() => selectStaff(r.id)}
+              style={{ cursor: 'pointer' }}
+              role="button"
+              aria-label={`${r.name} 사원 정보 보기`}
+            >
+              <title>{`클릭 — ${r.name} 사원의 정보와 1:1 대화를 엽니다`}</title>
+              {/* 클릭 판. 스프라이트에는 비어 있는 픽셀이 많아, 캐릭터 근처 어디를 눌러도
+                  방(더블클릭 판)이 아니라 사원이 잡히도록 판을 하나 깔아 준다. */}
+              <StaffHitArea />
+              {selectedStaffId === r.id ? <SelectRing /> : null}
               <g transform={`scale(${SX} ${SY})`}>
                 <CharacterSprite palette={a.palette} sigil={a.sigil} state="idle" jobClass={a.jobClass} gender={a.gender} />
               </g>
@@ -493,6 +520,7 @@ export default function OfficeCanvas() {
         </span>
         <span>캐릭터 이름표의 뒷부분은 현재 상태이며, 정확한 의미는 직원 패널에서 확인할 수 있습니다.</span>
         <span>회의 테이블을 더블클릭하면 우선순위 회의를 소집할 수 있습니다.</span>
+        <span>인간 사원을 클릭하면 근무 정보 · 지금 하는 일 · 1:1 대화가 오른쪽에 열립니다.</span>
         <span>직원을 클릭해 선택한 뒤 다른 방을 더블클릭하면 그곳으로 보냅니다 — 대표 집무실로 보내면 1:1 면담이 시작됩니다.</span>
       </div>
 
@@ -519,6 +547,27 @@ function SpeechBubble({ x, y, text, warn = false }: { x: number; y: number; text
         {text}
       </text>
     </g>
+  );
+}
+
+/** 캐릭터를 잡기 위한 투명 판 — 스프라이트의 빈 픽셀 때문에 클릭이 새는 것을 막는다. */
+function StaffHitArea() {
+  return <rect x={-0.35} y={-0.2} width={SPRITE_W + 0.7} height={SPRITE_H + 0.75} fill="transparent" />;
+}
+
+/** 선택된 캐릭터 발밑에 그리는 고리. AI 직원의 선택 표시와 같은 모양으로 맞춘다. */
+function SelectRing() {
+  return (
+    <ellipse
+      cx={SPRITE_W / 2}
+      cy={SPRITE_H - 0.05}
+      rx={1.05}
+      ry={0.5}
+      fill="none"
+      stroke="#ffd980"
+      strokeWidth={0.1}
+      pointerEvents="none"
+    />
   );
 }
 

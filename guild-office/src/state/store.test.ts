@@ -1021,6 +1021,54 @@ describe('대표 ↔ 플랫폼 관리자 메시지', () => {
   });
 });
 
+describe('대표 ↔ 인간 사원 1:1 대화', () => {
+  it('대표가 승인된 사원에게 보내면 스레드에 쌓인다', () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    const r = useWorld.getState().sendStaffMessage(id, '오늘 진행 상황 알려주세요');
+    expect(r.ok).toBe(true);
+    const thread = useWorld.getState().staffChats[id];
+    expect(thread).toHaveLength(1);
+    expect(thread[0].from).toBe('ceo');
+  });
+
+  it('사원은 자기 스레드에만 쓸 수 있다', () => {
+    bootstrap();
+    const mine = approveHumanStaff('김철수', 'chulsoo@example.com');
+    const other = approveHumanStaff('이영희', 'younghee@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+
+    expect(useWorld.getState().sendStaffMessage(mine, '넵 정리해서 올리겠습니다').ok).toBe(true);
+    const blocked = useWorld.getState().sendStaffMessage(other, '남의 대화');
+    expect(blocked.ok).toBe(false);
+    expect(useWorld.getState().staffChats[other]).toBeUndefined();
+  });
+
+  it('빈 내용과 승인되지 않은 사원은 거절한다', () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    expect(useWorld.getState().sendStaffMessage(id, '   ').ok).toBe(false);
+    expect(useWorld.getState().sendStaffMessage('없는사람', '안녕').ok).toBe(false);
+
+    useWorld.getState().removeHumanStaff(id);
+    expect(useWorld.getState().sendStaffMessage(id, '안녕').ok).toBe(false);
+  });
+
+  it('오른쪽 패널은 하나뿐이라 AI 직원과 인간 사원이 동시에 선택되지 않는다', () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    const aiId = useWorld.getState().employeeOrder[0];
+    useWorld.getState().selectEmployee(aiId);
+    useWorld.getState().selectStaff(id);
+    expect(useWorld.getState().ui.selectedEmployeeId).toBe(null);
+    expect(useWorld.getState().ui.selectedStaffId).toBe(id);
+
+    useWorld.getState().selectEmployee(aiId);
+    expect(useWorld.getState().ui.selectedStaffId).toBe(null);
+  });
+});
+
 describe('부서·전사 공용 채팅방', () => {
   it('회사를 창립하면 전사 공용 방(전체)이 자동으로 생긴다', () => {
     bootstrap();

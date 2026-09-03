@@ -13,6 +13,7 @@ import InterviewFlow from '@/components/onboarding/InterviewFlow';
 import FirstMissionBriefing from '@/components/onboarding/FirstMissionBriefing';
 import OfficeCanvas from '@/components/office/OfficeCanvas';
 import EmployeePanel from '@/components/panels/EmployeePanel';
+import HumanStaffPanel from '@/components/panels/HumanStaffPanel';
 import MissionBoard from '@/components/missions/MissionBoard';
 import RelationshipGraph from '@/components/graph/RelationshipGraph';
 import ChatRoomsPanel from '@/components/chat/ChatRoomsPanel';
@@ -214,6 +215,13 @@ const PANELS = [
   ['settings', '설정 · 보안', '회사 정보, 구글 드라이브 연결, 관리자 문의, 회사 삭제 요청.'],
 ] as const;
 
+/** 인간 사원 카드에 쓰는 근태 표기 */
+const STAFF_MODE_LABEL: Record<HumanStaffRecord['workMode'], string> = {
+  office: '출근',
+  remote: '재택',
+  not_started: '미출근',
+};
+
 function mmss(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSec / 60);
@@ -263,7 +271,10 @@ function DriveConnectionNotice() {
 function OfficeScreen() {
   const order = useWorld((s) => s.employeeOrder);
   const employees = useWorld((s) => s.employees);
+  const humanStaff = useWorld((s) => s.humanStaff);
   const selectedId = useWorld((s) => s.ui.selectedEmployeeId);
+  const selectedStaffId = useWorld((s) => s.ui.selectedStaffId);
+  const selectStaff = useWorld((s) => s.selectStaff);
   const openPanel = useWorld((s) => s.ui.openPanel);
   const setPanel = useWorld((s) => s.openPanel);
   const select = useWorld((s) => s.selectEmployee);
@@ -273,6 +284,8 @@ function OfficeScreen() {
 
   const pending = approvals.filter((a) => a.status === 'pending').length;
   const reviewing = missionOrder.filter((id) => missions[id]?.status === 'review').length;
+  // 재택 사원은 오피스 지도에 그리지 않으므로, 이 카드 줄이 유일한 클릭 경로다.
+  const staffCards = Object.values(humanStaff).filter((r) => r.status === 'approved');
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-4">
@@ -322,16 +335,49 @@ function OfficeScreen() {
               );
             })}
           </div>
+
+          {staffCards.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {staffCards.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => selectStaff(r.id)}
+                  title="클릭하면 근무 정보 · 지금 하는 일 · 1:1 대화가 열립니다."
+                  className={`rounded-lg border px-3 py-2 text-left text-[11px] transition-colors ${
+                    selectedStaffId === r.id ? 'border-gold bg-stone-800/60' : 'border-stone-700 hover:border-stone-500'
+                  }`}
+                >
+                  <span className="block text-sm text-stone-100">
+                    🧑 {r.name} <span className="text-[11px] text-stone-500">· {r.role || '직책 미정'}</span>
+                  </span>
+                  <span className="mt-0.5 block text-stone-400">
+                    {STAFF_MODE_LABEL[r.workMode]}
+                    <span className="text-stone-600">
+                      {' · '}
+                      {r.currentTaskNote ? r.currentTaskNote : '지금 하는 일 미기재'}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="lg:sticky lg:top-16 lg:h-[calc(100vh-5rem)]">
-          {selectedId ? (
+          {selectedStaffId ? (
+            <HumanStaffPanel staffId={selectedStaffId} />
+          ) : selectedId ? (
             <EmployeePanel employeeId={selectedId} />
           ) : (
             <div className="panel grid h-full place-items-center p-8 text-center text-xs text-stone-500">
               오피스에서 AI 직원을 클릭하면
               <br />
               1:1 대화와 업무 지시 패널이 열립니다.
+              <br />
+              <span className="mt-2 block text-stone-600">
+                인간 사원을 클릭하면 근무 정보 · 지금 하는 일 · 1:1 대화가 열립니다.
+              </span>
             </div>
           )}
         </div>

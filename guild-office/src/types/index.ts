@@ -259,6 +259,23 @@ export interface HumanStaffRecord {
   decidedBy: string | null;
 }
 
+/**
+ * 대표 ↔ 인간 사원의 1:1 대화 한 줄.
+ *
+ * AI 직원과의 대화(`Message`)와는 완전히 별개다. AI 대화에는 업무 지시·승인 요청
+ * 같은 종류(kind)가 있지만, 사람끼리의 1:1 은 그냥 대화다 — 지시는 말로 하고
+ * 기록은 미션·승인 쪽에 남는다.
+ */
+export interface StaffMessage {
+  id: string;
+  staffId: string;
+  from: 'ceo' | 'staff';
+  /** 보낸 사람 이름 (나중에 대표가 바뀌어도 그때의 이름이 남도록 함께 저장한다) */
+  authorName: string;
+  text: string;
+  ts: number;
+}
+
 /* ─────────────────────────── 지사 (국내·해외) ─────────────────────────── */
 
 /**

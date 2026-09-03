@@ -78,6 +78,7 @@ import type {
   Role,
   RoomId,
   Session,
+  StaffMessage,
   TaskEstimate,
   ToolId,
 } from '@/types';
@@ -108,6 +109,15 @@ export interface WorldState {
    * 참여하지 않고, 오피스 화면에는 근태(workMode)에 따라 장식용으로만 표시된다.
    */
   humanStaff: Record<string, HumanStaffRecord>;
+
+  /**
+   * 대표 ↔ 인간 사원 1:1 대화. 사원 id 로 묶는다.
+   *
+   * 단일 브라우저 데모라 대표와 사원이 같은 저장소를 나눠 쓴다 — 대표가 쓰고
+   * 로그아웃한 뒤 사원으로 들어오면 그대로 보인다. 실제 서비스에서는 서버가
+   * 스레드를 들고 있어야 하고, 그건 백엔드 항목이다.
+   */
+  staffChats: Record<string, StaffMessage[]>;
 
   /**
    * 회사 창립 신청. 플랫폼 관리자가 승인해야 실제 Company 가 만들어진다.
@@ -158,6 +168,8 @@ export interface WorldState {
 
   ui: {
     selectedEmployeeId: string | null;
+    /** 오피스에서 선택한 인간 사원. AI 직원 선택과 동시에 켜지지 않는다. */
+    selectedStaffId: string | null;
     openPanel:
       | null
       | 'missions'
@@ -417,6 +429,12 @@ export interface WorldActions {
   /** 사원이 "지금 뭐 하고 있는지" 한 줄을 스스로 남긴다(본인 기록만). */
   updateOwnTaskNote: (text: string) => { ok: boolean; error?: string };
 
+  /**
+   * 대표 ↔ 인간 사원 1:1 대화에 한 줄 보낸다.
+   * 대표는 승인된 사원 누구에게나, 사원은 자기 스레드에만 쓸 수 있다.
+   */
+  sendStaffMessage: (staffId: string, text: string) => { ok: boolean; error?: string };
+
   /** 기억 한 줄을 append 한다 (교훈/사건/선호/정정). 기존 기억은 지우지 않는다. */
   addMemoryRecord: (
     employeeId: string,
@@ -428,6 +446,8 @@ export interface WorldActions {
   compileEmployeePrompt: (employeeId: string) => string;
 
   selectEmployee: (id: string | null) => void;
+  /** 오피스에서 인간 사원을 고른다. AI 직원 선택은 자동으로 풀린다(패널은 하나뿐). */
+  selectStaff: (id: string | null) => void;
   openPanel: (p: WorldState['ui']['openPanel']) => void;
   setToast: (t: string | null) => void;
 
@@ -462,6 +482,7 @@ const initialState: WorldState = {
   employees: {},
   employeeOrder: [],
   humanStaff: {},
+  staffChats: {},
   companyApplications: {},
   platformMessages: [],
   branches: {},
@@ -479,7 +500,7 @@ const initialState: WorldState = {
   chatRoomOrder: [],
   chatRoomMessages: {},
   chatRoomInvites: [],
-  ui: { selectedEmployeeId: null, openPanel: null, interviewQueue: [], toast: null },
+  ui: { selectedEmployeeId: null, selectedStaffId: null, openPanel: null, interviewQueue: [], toast: null },
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
   easterEgg: initialEasterEgg,
   simulationMode: false,
@@ -1299,6 +1320,7 @@ export const useWorld = create<Store>()(
               employees: {},
               employeeOrder: [],
               humanStaff: {},
+              staffChats: {},
               memories: {},
               missions: {},
               missionOrder: [],
@@ -2043,6 +2065,36 @@ export const useWorld = create<Store>()(
         return { ok: true };
       },
 
+      sendStaffMessage: (staffId, text) => {
+        const s = get();
+        const body = text.trim();
+        if (!body) return { ok: false, error: '내용을 입력하세요.' };
+
+        const rec = s.humanStaff[staffId];
+        if (!rec) return { ok: false, error: '사원을 찾을 수 없습니다.' };
+        if (rec.status !== 'approved') return { ok: false, error: '승인된 사원과만 대화할 수 있습니다.' };
+
+        const role = s.session?.role;
+        // 대표는 누구에게나, 사원은 자기 스레드에만. 그 밖(플랫폼 관리자 등)은 막는다 —
+        // 관리자가 회사 내부 1:1 대화에 끼어들 이유가 없다.
+        const isCeo = role === 'ceo';
+        const isOwner = role === 'human_staff' && s.session?.humanStaffId === staffId;
+        if (!isCeo && !isOwner) return { ok: false, error: '이 대화에 쓸 권한이 없습니다.' };
+
+        const msg: StaffMessage = {
+          id: nid('smsg'),
+          staffId,
+          from: isCeo ? 'ceo' : 'staff',
+          authorName: s.session?.accountName ?? (isCeo ? '대표' : rec.name),
+          text: body,
+          ts: Date.now(),
+        };
+        set({
+          staffChats: { ...s.staffChats, [staffId]: [...(s.staffChats[staffId] ?? []), msg] },
+        });
+        return { ok: true };
+      },
+
       /* ── 개인 기억 ─────────────────────────────────────────────────── */
       addMemoryRecord: (employeeId, input) => {
         const s = get();
@@ -2092,7 +2144,9 @@ export const useWorld = create<Store>()(
         return compileSystemPrompt(memory);
       },
 
-      selectEmployee: (id) => set((s) => ({ ui: { ...s.ui, selectedEmployeeId: id } })),
+      // 오른쪽 패널은 하나뿐이므로 둘 중 하나만 선택된 상태로 둔다.
+      selectEmployee: (id) => set((s) => ({ ui: { ...s.ui, selectedEmployeeId: id, selectedStaffId: null } })),
+      selectStaff: (id) => set((s) => ({ ui: { ...s.ui, selectedStaffId: id, selectedEmployeeId: null } })),
       openPanel: (p) => set((s) => ({ ui: { ...s.ui, openPanel: p } })),
       setToast: (t) => set((s) => ({ ui: { ...s.ui, toast: t } })),
 
@@ -2162,6 +2216,7 @@ export const useWorld = create<Store>()(
         employees: s.employees,
         employeeOrder: s.employeeOrder,
         humanStaff: s.humanStaff,
+        staffChats: s.staffChats,
         companyApplications: s.companyApplications,
         platformMessages: s.platformMessages,
         branches: s.branches,
