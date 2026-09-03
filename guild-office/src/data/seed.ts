@@ -569,4 +569,20 @@ export const SIMULATION_HUMAN_STAFF: Array<{
     workMode: 'remote',
     currentTaskNote: '재택 — 결제 모듈 리팩터링',
   },
+  {
+    name: '최민서',
+    email: 'test-minseo@example.com',
+    role: '고객지원',
+    appearanceId: 'guardian',
+    workMode: 'remote',
+    currentTaskNote: '재택 — 문의 티켓 정리',
+  },
+  {
+    name: '한지우',
+    email: 'test-jiwoo@example.com',
+    role: '영업',
+    appearanceId: 'sage',
+    workMode: 'leave',
+    currentTaskNote: '연차 — 9/3 하루',
+  },
 ];

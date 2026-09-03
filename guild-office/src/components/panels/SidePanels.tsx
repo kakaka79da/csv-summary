@@ -16,7 +16,12 @@ const BRANCH_STATUS_LABEL: Record<BranchStatus, string> = {
   closed: '폐쇄',
 };
 
-const WORK_MODE_LABEL: Record<WorkMode, string> = { office: '출근', remote: '재택', not_started: '미출근' };
+const WORK_MODE_LABEL: Record<WorkMode, string> = {
+  office: '출근',
+  remote: '재택',
+  not_started: '미출근',
+  leave: '휴가·연차',
+};
 
 /** 데모용 지급일 관례 — 매월 25일. 실제 지급일 설정은 백엔드 항목으로 분리한다. */
 const PAYDAY_DOM = 25;
@@ -457,8 +462,9 @@ function RosterRow({
                 onChange={(e) => update(record.id, { workMode: e.target.value as WorkMode })}
               >
                 <option value="office">출근</option>
-                <option value="remote">재택</option>
-                <option value="not_started">미출근</option>
+                <option value="remote">재택 (자택에서 화상 연결)</option>
+                <option value="not_started">미출근 (출근길)</option>
+                <option value="leave">휴가 · 연가 · 연차 (낚시터)</option>
               </Select>
               <BranchPicker record={record} />
               <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>

@@ -14,10 +14,11 @@ import { clock, money } from '@/lib/format';
 import { Badge, Button, CopyButton, MailLink, Notice, SectionTitle, TextInput } from '@/components/ui/primitives';
 import type { WorkMode } from '@/types';
 
-const WORK_MODE: Record<WorkMode, { label: string; tone: 'vital' | 'arcane' | 'neutral'; where: string }> = {
+const WORK_MODE: Record<WorkMode, { label: string; tone: 'vital' | 'arcane' | 'neutral' | 'gold'; where: string }> = {
   office: { label: '출근', tone: 'vital', where: '사무실 휴게실 근처에 있습니다.' },
   remote: { label: '재택', tone: 'arcane', where: '자택에서 근무 중이라 오피스 지도에는 그리지 않습니다.' },
   not_started: { label: '미출근', tone: 'neutral', where: '아직 도착하지 않아 오른쪽 출근길에 서 있습니다.' },
+  leave: { label: '휴가·연차', tone: 'gold', where: '자리를 비웠습니다. 오피스 화면에서는 낚시터에 있습니다.' },
 };
 
 /** "3분 전" 처럼 얼마나 지났는지. 오래된 값을 최신처럼 보이지 않게 하려고 쓴다. */

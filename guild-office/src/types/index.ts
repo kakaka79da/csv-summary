@@ -222,8 +222,14 @@ export type EmployeeAppearanceId = 'scribe' | 'engineer' | 'sage' | 'guardian' |
 
 export type HumanStaffStatus = 'pending' | 'approved' | 'rejected' | 'removed';
 
-/** 오피스 안에서 오늘 어디 있는지. 실제 근태 상태를 그대로 반영한다. */
-export type WorkMode = 'office' | 'remote' | 'not_started';
+/**
+ * 인간 사원의 근태. 오피스 화면에 어디로 그릴지도 이 값이 정한다.
+ *  - office       출근 (사무실 안)
+ *  - remote       재택 (자택에서 화상으로 연결)
+ *  - not_started  미출근 (아직 오는 중 — 출근길)
+ *  - leave        휴가 · 연가 · 연차 (자리를 비움 — 오피스에서는 낚시터에 있다)
+ */
+export type WorkMode = 'office' | 'remote' | 'not_started' | 'leave';
 
 /**
  * 인간 사원 명부. AI 직원(Employee)과는 별개의 얕은 레코드다 —

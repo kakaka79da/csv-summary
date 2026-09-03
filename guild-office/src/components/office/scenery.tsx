@@ -53,12 +53,15 @@ export function Countryside({
   h,
   margin,
   rightMargin = margin,
+  roadEndY,
 }: {
   w: number;
   h: number;
   margin: number;
   /** 출근길을 두기 위해 오른쪽만 더 넓게 쓸 때. 기본값은 margin 과 같다. */
   rightMargin?: number;
+  /** 출근길이 끝나는 높이. 그 아래는 자택 공간이라 길을 그리지 않는다. */
+  roadEndY: number;
 }) {
   const r = rng(20260901);
   const orchard: Array<{ x: number; y: number; s: number }> = [];
@@ -106,11 +109,12 @@ export function Countryside({
         fill="none"
         opacity={0.85}
       />
-      {/* 출근길 — 캠퍼스 오른쪽을 따라 세로로 난 길. 아직 출근하지 않은 사원이 여기 서 있는다. */}
+      {/* 출근길 — 캠퍼스 오른쪽을 따라 세로로 난 길. 아직 출근하지 않은 사원이 여기 서 있는다.
+          길 아래쪽(roadEndY 아래)은 자택 공간이라 길을 거기서 끊는다. */}
       <g>
-        <rect x={w + 0.9} y={-0.5} width={1.5} height={h + 1} rx={0.4} fill="#a9906a" opacity={0.9} />
-        <rect x={w + 1.55} y={-0.5} width={0.16} height={h + 1} fill="#e8d9b5" opacity={0.35} />
-        {Array.from({ length: Math.floor(h / 3) }).map((_, i) => (
+        <rect x={w + 0.9} y={-0.5} width={1.5} height={roadEndY + 0.5} rx={0.4} fill="#a9906a" opacity={0.9} />
+        <rect x={w + 1.55} y={-0.5} width={0.16} height={roadEndY + 0.5} fill="#e8d9b5" opacity={0.35} />
+        {Array.from({ length: Math.max(0, Math.floor(roadEndY / 3)) }).map((_, i) => (
           <rect
             key={`kerb${i}`}
             x={w + 0.72}

@@ -220,6 +220,7 @@ const STAFF_MODE_LABEL: Record<HumanStaffRecord['workMode'], string> = {
   office: '출근',
   remote: '재택',
   not_started: '미출근',
+  leave: '휴가·연차',
 };
 
 function mmss(ms: number): string {

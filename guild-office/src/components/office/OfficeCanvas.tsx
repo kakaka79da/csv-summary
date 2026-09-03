@@ -28,7 +28,7 @@ import {
   SceneryDefs,
 } from '@/components/office/scenery';
 import { AGENT_STATE_LABEL } from '@/lib/format';
-import type { Company, Message, RoomId } from '@/types';
+import type { Company, HumanStaffRecord, Message, RoomId } from '@/types';
 
 const SPRITE_W = 1.5;
 const SPRITE_H = 1.8;
@@ -133,11 +133,42 @@ const HUMAN_LOUNGE_SPOTS = [
  * 아직 사무실 안으로 들어오지 않았다는 뜻이다. GRID/경로탐색과는 무관한 장식용 좌표다.
  */
 const HUMAN_WAITING_SPOTS = [
-  { x: OFFICE_W + 1.65, y: 4 },
-  { x: OFFICE_W + 1.65, y: 7.2 },
-  { x: OFFICE_W + 1.65, y: 10.4 },
-  { x: OFFICE_W + 1.65, y: 13.6 },
-  { x: OFFICE_W + 1.65, y: 16.8 },
+  { x: OFFICE_W + 1.65, y: 3.2 },
+  { x: OFFICE_W + 1.65, y: 5.8 },
+  { x: OFFICE_W + 1.65, y: 8.4 },
+  { x: OFFICE_W + 1.65, y: 11 },
+];
+
+/** 출근길이 끝나는 높이. 이 아래는 자택 공간이다. */
+export const ROAD_END_Y = 12.2;
+
+/**
+ * 자택 근무 공간 — 출근길 아래쪽에 따로 마련한 칸.
+ *
+ * 재택 사원은 사무실에 없지만 "보이지 않는다"고 두면 대표가 확인할 길이 없다.
+ * 그래서 화상 회의 화면처럼 창을 띄우고 그 안에 캐릭터를 넣는다.
+ * 전부 장식이며, 실제 화상 연결은 하지 않는다(백엔드 항목).
+ */
+const HOME_AREA = { x: OFFICE_W + 0.5, y: ROAD_END_Y + 0.6, w: 5.3, h: 7.6 };
+/** 화상 창 한 칸의 크기와 자리 (2열 × 2행) */
+const CALL_W = 2.35;
+const CALL_H = 3.1;
+const CALL_SLOTS = [
+  { x: HOME_AREA.x + 0.2, y: HOME_AREA.y + 1.05 },
+  { x: HOME_AREA.x + 0.2 + CALL_W + 0.3, y: HOME_AREA.y + 1.05 },
+  { x: HOME_AREA.x + 0.2, y: HOME_AREA.y + 1.05 + CALL_H + 0.25 },
+  { x: HOME_AREA.x + 0.2 + CALL_W + 0.3, y: HOME_AREA.y + 1.05 + CALL_H + 0.25 },
+];
+
+/**
+ * 휴가·연가·연차 중인 사원이 서는 자리 — 낚시터.
+ * "자리를 비웠다"를 빈칸으로 두는 대신, 회사 안에서 쉬는 곳으로 보내 눈에 띄게 한다.
+ */
+const HUMAN_LEAVE_SPOTS = [
+  { x: 26.9, y: 16 },
+  { x: 30.1, y: 16 },
+  { x: 26.9, y: 18.6 },
+  { x: 30.1, y: 18.6 },
 ];
 
 export default function OfficeCanvas() {
@@ -181,10 +212,14 @@ export default function OfficeCanvas() {
     sendToRoom(selectedId, roomId);
   };
 
-  // 인간 사원 — 승인된 인원만, 재택 근무는 지도에 그리지 않고 조직 패널에만 표시한다.
+  // 인간 사원 — 승인된 인원만. 근태에 따라 그리는 곳이 다르다:
+  //   출근 → 휴게실, 미출근 → 오른쪽 출근길, 재택 → 출근길 아래 자택 칸(화상),
+  //   휴가·연차 → 낚시터.
   const approvedStaff = Object.values(humanStaff).filter((r) => r.status === 'approved');
   const officeStaff = approvedStaff.filter((r) => r.workMode === 'office');
   const waitingStaff = approvedStaff.filter((r) => r.workMode === 'not_started');
+  const remoteStaff = approvedStaff.filter((r) => r.workMode === 'remote');
+  const leaveStaff = approvedStaff.filter((r) => r.workMode === 'leave');
 
   // 가구 타일은 벽과 구분해서 칠하기 위해 따로 모아 둔다.
   const furnitureByKey = new Map<string, RoomId>();
@@ -212,7 +247,7 @@ export default function OfficeCanvas() {
         <SceneryDefs />
 
         {/* 바깥 시골 풍경 */}
-        <Countryside w={OFFICE_W} h={OFFICE_H} margin={MARGIN} rightMargin={RIGHT_MARGIN} />
+        <Countryside w={OFFICE_W} h={OFFICE_H} margin={MARGIN} rightMargin={RIGHT_MARGIN} roadEndY={ROAD_END_Y} />
 
         {/* 캠퍼스 바닥 = 자갈길 */}
         <rect x={0} y={0} width={OFFICE_W} height={OFFICE_H} fill="url(#gravel)" />
@@ -450,7 +485,7 @@ export default function OfficeCanvas() {
         {waitingStaff.length > 0 ? (
           <text
             x={OFFICE_W + 1.65}
-            y={1.4}
+            y={0.9}
             textAnchor="middle"
             fontSize={0.5}
             fill="#d8c9a8"
@@ -487,6 +522,33 @@ export default function OfficeCanvas() {
           );
         })}
 
+        {/* 인간 사원 — 휴가·연가·연차: 자리를 비웠다는 뜻으로 낚시터에 세워 둔다. */}
+        {leaveStaff.map((r, i) => {
+          const a = EMPLOYEE_APPEARANCES[r.appearanceId];
+          const spot = HUMAN_LEAVE_SPOTS[i % HUMAN_LEAVE_SPOTS.length];
+          return (
+            <g
+              key={r.id}
+              transform={`translate(${spot.x - SPRITE_W / 2} ${spot.y - SPRITE_H + 0.5})`}
+              onClick={() => selectStaff(r.id)}
+              style={{ cursor: 'pointer' }}
+              role="button"
+              aria-label={`${r.name} 사원 정보 보기`}
+            >
+              <title>{`클릭 — ${r.name} 사원(휴가·연차)의 정보와 1:1 대화를 엽니다`}</title>
+              <StaffHitArea />
+              {selectedStaffId === r.id ? <SelectRing /> : null}
+              <g transform={`scale(${SX} ${SY})`}>
+                <CharacterSprite palette={a.palette} sigil={a.sigil} state="fishing" jobClass={a.jobClass} gender={a.gender} />
+              </g>
+              <NameTag x={SPRITE_W / 2} y={SPRITE_H + 0.34} text={`${r.name} · 휴가`} tone="#f0cd85" />
+            </g>
+          );
+        })}
+
+        {/* 자택 근무 공간 — 출근길 아래쪽. 재택 사원이 화상으로 연결되어 있는 모습. */}
+        <HomeArea staff={remoteStaff} selectedStaffId={selectedStaffId} onSelect={selectStaff} />
+
         {/* 날씨 — 캐릭터까지 포함해 화면 전체를 덮으므로 맨 마지막에 그린다. */}
         {weather.effects ? (
           <WeatherOverlay condition={weather.condition} phase={phase} bounds={VIEW} />
@@ -521,6 +583,7 @@ export default function OfficeCanvas() {
         <span>캐릭터 이름표의 뒷부분은 현재 상태이며, 정확한 의미는 직원 패널에서 확인할 수 있습니다.</span>
         <span>회의 테이블을 더블클릭하면 우선순위 회의를 소집할 수 있습니다.</span>
         <span>인간 사원을 클릭하면 근무 정보 · 지금 하는 일 · 1:1 대화가 오른쪽에 열립니다.</span>
+        <span>🏠 자택 근무 = 재택 사원 (화상 연결 연출이며 실제 통화는 하지 않습니다) · 낚시터 = 휴가 · 연가 · 연차</span>
         <span>직원을 클릭해 선택한 뒤 다른 방을 더블클릭하면 그곳으로 보냅니다 — 대표 집무실로 보내면 1:1 면담이 시작됩니다.</span>
       </div>
 
@@ -545,6 +608,182 @@ function SpeechBubble({ x, y, text, warn = false }: { x: number; y: number; text
       <rect x={x - 0.13} y={y - 0.03} width={0.26} height={0.05} fill="#f4ecd8" />
       <text x={x} y={top + h / 2 + 0.1} textAnchor="middle" fontSize={0.24} fill="#241a12">
         {text}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * 자택 근무 공간. 출근길 아래쪽 칸에 화상 회의 창을 띄우고 그 안에 캐릭터를 넣는다.
+ *
+ * 재택 사원을 지도에서 아예 빼면 "오늘 안 보이는 사람"이 되어 버린다. 사무실 안에
+ * 그리면 출근한 것처럼 보인다. 그래서 캠퍼스 밖 별도 칸에, 화면 너머로 연결된
+ * 모습으로 그린다 — 위치는 다르지만 함께 일하는 중이라는 뜻이다.
+ *
+ * ⚠️ 실제 화상 연결은 하지 않는다. 연출이며, 근태(workMode)만 그대로 반영한다.
+ */
+function HomeArea({
+  staff,
+  selectedStaffId,
+  onSelect,
+}: {
+  staff: HumanStaffRecord[];
+  selectedStaffId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const shown = staff.slice(0, CALL_SLOTS.length);
+  const overflow = staff.length - shown.length;
+  const titleY = HOME_AREA.y + 0.62;
+
+  return (
+    <g>
+      {/* 바닥 칸 */}
+      <rect
+        x={HOME_AREA.x}
+        y={HOME_AREA.y}
+        width={HOME_AREA.w}
+        height={HOME_AREA.h}
+        rx={0.35}
+        fill="#1d2430"
+        opacity={0.92}
+      />
+      <rect
+        x={HOME_AREA.x}
+        y={HOME_AREA.y}
+        width={HOME_AREA.w}
+        height={HOME_AREA.h}
+        rx={0.35}
+        fill="none"
+        stroke="#5fa5c4"
+        strokeWidth={0.07}
+        opacity={0.7}
+      />
+      {/* 지붕 — "집" 이라는 것을 한눈에 */}
+      <path
+        d={`M ${HOME_AREA.x - 0.35} ${HOME_AREA.y} L ${HOME_AREA.x + HOME_AREA.w / 2} ${HOME_AREA.y - 1.05} L ${HOME_AREA.x + HOME_AREA.w + 0.35} ${HOME_AREA.y} Z`}
+        fill="#7a5a36"
+      />
+      <path
+        d={`M ${HOME_AREA.x - 0.35} ${HOME_AREA.y} L ${HOME_AREA.x + HOME_AREA.w / 2} ${HOME_AREA.y - 1.05} L ${HOME_AREA.x + HOME_AREA.w + 0.35} ${HOME_AREA.y} Z`}
+        fill="none"
+        stroke="#4f3a22"
+        strokeWidth={0.08}
+      />
+      <text x={HOME_AREA.x + HOME_AREA.w / 2} y={titleY} textAnchor="middle" fontSize={0.44} fill="#cfe6ef">
+        🏠 자택 근무
+      </text>
+
+      {shown.length === 0 ? (
+        <text
+          x={HOME_AREA.x + HOME_AREA.w / 2}
+          y={HOME_AREA.y + HOME_AREA.h / 2}
+          textAnchor="middle"
+          fontSize={0.4}
+          fill="#6b7c8c"
+        >
+          재택 중인 사원 없음
+        </text>
+      ) : null}
+
+      {shown.map((r, i) => (
+        <VideoCall
+          key={r.id}
+          record={r}
+          slot={CALL_SLOTS[i]}
+          selected={selectedStaffId === r.id}
+          onSelect={onSelect}
+        />
+      ))}
+
+      {overflow > 0 ? (
+        <text
+          x={HOME_AREA.x + HOME_AREA.w / 2}
+          y={HOME_AREA.y + HOME_AREA.h - 0.22}
+          textAnchor="middle"
+          fontSize={0.36}
+          fill="#8fb4c8"
+        >
+          외 {overflow}명 재택 중
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
+/** 화상 회의 창 한 칸. 화면 테두리 + 연결 표시등 + 그 안의 캐릭터. */
+function VideoCall({
+  record,
+  slot,
+  selected,
+  onSelect,
+}: {
+  record: HumanStaffRecord;
+  slot: { x: number; y: number };
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const a = EMPLOYEE_APPEARANCES[record.appearanceId];
+  // 캐릭터를 창 안에 맞춰 넣는다 (창 폭의 약 60%).
+  const inner = CALL_W * 0.62;
+  const scale = inner / 24;
+  const charX = slot.x + (CALL_W - inner) / 2;
+  const charY = slot.y + CALL_H - 0.62 - 28 * scale;
+
+  return (
+    <g
+      onClick={() => onSelect(record.id)}
+      style={{ cursor: 'pointer' }}
+      role="button"
+      aria-label={`${record.name} 사원 정보 보기`}
+    >
+      <title>{`클릭 — ${record.name} 사원(재택)의 정보와 1:1 대화를 엽니다`}</title>
+      <rect x={slot.x} y={slot.y} width={CALL_W} height={CALL_H} rx={0.16} fill="#0e141c" />
+      <rect
+        x={slot.x}
+        y={slot.y}
+        width={CALL_W}
+        height={CALL_H}
+        rx={0.16}
+        fill="none"
+        stroke={selected ? '#ffd980' : '#5fa5c4'}
+        strokeWidth={selected ? 0.11 : 0.06}
+        opacity={selected ? 1 : 0.8}
+      />
+      {/* 화면 상단 바 — 연결 표시등 */}
+      <rect x={slot.x} y={slot.y} width={CALL_W} height={0.42} rx={0.16} fill="#16202b" />
+      <motion.circle
+        cx={slot.x + 0.28}
+        cy={slot.y + 0.21}
+        r={0.09}
+        fill="#4fbf8b"
+        animate={{ opacity: [0.45, 1, 0.45] }}
+        transition={{ duration: 2, repeat: Infinity }}
+      />
+      <text x={slot.x + 0.46} y={slot.y + 0.32} fontSize={0.24} fill="#8fe0bb">
+        연결됨
+      </text>
+
+      {/* 화면 안 — 옅은 배경 + 캐릭터 */}
+      <rect x={slot.x + 0.1} y={slot.y + 0.5} width={CALL_W - 0.2} height={CALL_H - 1.02} rx={0.1} fill="#16222e" />
+      <g transform={`translate(${charX} ${charY}) scale(${scale})`}>
+        <CharacterSprite palette={a.palette} sigil={a.sigil} state="working" jobClass={a.jobClass} gender={a.gender} />
+      </g>
+      {/* 주사선 — 화면이라는 느낌 */}
+      {[0, 1, 2].map((k) => (
+        <rect
+          key={k}
+          x={slot.x + 0.1}
+          y={slot.y + 0.9 + k * 0.62}
+          width={CALL_W - 0.2}
+          height={0.05}
+          fill="#8fd6f5"
+          opacity={0.1}
+        />
+      ))}
+
+      {/* 이름 */}
+      <text x={slot.x + CALL_W / 2} y={slot.y + CALL_H - 0.16} textAnchor="middle" fontSize={0.3} fill="#dbe8f0">
+        {record.name}
       </text>
     </g>
   );

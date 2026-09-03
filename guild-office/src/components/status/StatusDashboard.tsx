@@ -9,11 +9,17 @@ import { AGENT_STATE_LABEL, clock } from '@/lib/format';
 import { Badge, Button, SectionTitle, TextInput } from '@/components/ui/primitives';
 import type { HumanStaffRecord, WorkMode } from '@/types';
 
-const WORK_MODE_LABEL: Record<WorkMode, string> = { office: '출근', remote: '재택', not_started: '미출근' };
-const WORK_MODE_TONE: Record<WorkMode, 'vital' | 'arcane' | 'neutral'> = {
+const WORK_MODE_LABEL: Record<WorkMode, string> = {
+  office: '출근',
+  remote: '재택',
+  not_started: '미출근',
+  leave: '휴가·연차',
+};
+const WORK_MODE_TONE: Record<WorkMode, 'vital' | 'arcane' | 'neutral' | 'gold'> = {
   office: 'vital',
   remote: 'arcane',
   not_started: 'neutral',
+  leave: 'gold',
 };
 
 export default function StatusDashboard() {
