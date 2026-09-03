@@ -11,7 +11,7 @@ import { useWorld } from '@/state/store';
 import { EMPLOYEE_APPEARANCES } from '@/data/seed';
 import CharacterSprite from '@/components/office/CharacterSprite';
 import { clock, money } from '@/lib/format';
-import { Badge, Button, Notice, SectionTitle, TextInput } from '@/components/ui/primitives';
+import { Badge, Button, CopyButton, MailLink, Notice, SectionTitle, TextInput } from '@/components/ui/primitives';
 import type { WorkMode } from '@/types';
 
 const WORK_MODE: Record<WorkMode, { label: string; tone: 'vital' | 'arcane' | 'neutral'; where: string }> = {
@@ -42,6 +42,8 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
 
   const [draft, setDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
+  // 급여·연락처가 들어 있어 어깨너머로 보이기 쉬운 칸이다. 기본은 가려 둔다.
+  const [infoOpen, setInfoOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +67,8 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
   const mode = WORK_MODE[record.workMode];
   const branch = record.branchId ? branches[record.branchId] : null;
   const now = Date.now();
+  // 메일 앱 제목 줄을 미리 채워 둔다 — 받는 사람이 어느 회사에서 온 메일인지 바로 알도록.
+  const mailSubject = `[${company.name}] `;
 
   const send = () => {
     const r = sendStaffMessage(staffId, draft);
@@ -94,7 +98,9 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
             <h2 className="rune-title text-lg">{record.name}</h2>
             <span className="text-xs text-stone-400">{record.role || '직책 미정'}</span>
           </div>
-          <div className="truncate text-[11px] text-stone-500">{record.email}</div>
+          <div className="truncate text-[11px] text-stone-500">
+            <MailLink email={record.email} subject={mailSubject} />
+          </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <Badge tone={mode.tone}>{mode.label}</Badge>
             <Badge tone="neutral">🧑 인간 사원</Badge>
@@ -141,11 +147,41 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
           ) : null}
         </div>
 
-        {/* 근무 정보 */}
+        {/* 근무 정보 — 급여·연락처가 있어 기본은 가려 둔다 */}
         <div>
-          <SectionTitle>근무 정보</SectionTitle>
-          <dl className="mt-1.5 space-y-1 text-[11px]">
+          <div className="flex items-center justify-between gap-2">
+            <SectionTitle className="mb-0">근무 정보</SectionTitle>
+            <Button
+              size="sm"
+              variant="quiet"
+              hint={
+                infoOpen
+                  ? '근무 정보를 다시 가립니다.'
+                  : '급여·연락처 등이 들어 있어 기본은 가려 둡니다. 눌러서 펼칩니다.'
+              }
+              onClick={() => setInfoOpen((v) => !v)}
+            >
+              {infoOpen ? '가리기' : '나오기'}
+            </Button>
+          </div>
+
+          {!infoOpen ? (
+            <p className="mt-1 text-[10px] text-stone-600">
+              급여 · 연락처 등이 들어 있어 가려 두었습니다. 이메일은 위 이름 아래에서 바로 누를 수 있습니다.
+            </p>
+          ) : null}
+
+          <dl className={`mt-1.5 space-y-1 text-[11px] ${infoOpen ? '' : 'hidden'}`}>
             <Row label="근무 형태" value={`${mode.label} — ${mode.where}`} />
+            <Row
+              label="이메일"
+              value={
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <MailLink email={record.email} subject={mailSubject} />
+                  <CopyButton value={record.email} label="주소 복사" />
+                </span>
+              }
+            />
             <Row label="소속 지사" value={branch ? `${branch.name} (${branch.country})` : '본사 (미배치)'} />
             {isCeo ? (
               <Row
@@ -160,7 +196,7 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
               value={record.decidedAt ? `${clock(record.decidedAt)} · ${record.decidedBy ?? '-'}` : '-'}
             />
           </dl>
-          {isCeo ? (
+          {isCeo && infoOpen ? (
             <p className="mt-1.5 text-[10px] text-stone-600">
               직책 · 급여 · 복지 · 근무 형태 변경은 <span className="text-stone-400">조직 · 지사</span> 패널에서 합니다.
             </p>
@@ -228,7 +264,7 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex gap-2">
       <dt className="w-20 shrink-0 text-stone-500">{label}</dt>

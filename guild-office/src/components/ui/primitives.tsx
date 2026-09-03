@@ -231,6 +231,63 @@ export function DualLabel({ game, real }: { game: string; real: string }) {
   );
 }
 
+/**
+ * 클릭하면 기기의 기본 메일 앱이 열리는 이메일 링크.
+ *
+ * 이 앱에는 서버가 없어서 메일을 직접 보낼 수는 없다. 대신 `mailto:` 로 사용자의
+ * 메일 앱에 받는 사람(과 제목)을 채워서 넘긴다 — 실제 발송은 그 앱이 한다.
+ * 그래서 "보낸 메일" 기록도 이 앱에는 남지 않는다.
+ *
+ * ⚠️ 미리보기 샌드박스(claude.ai 아티팩트 등)는 바깥으로 나가는 이동을 막으므로
+ * 링크가 아무 반응이 없을 수 있다. 그때를 위해 주소 복사 버튼을 함께 둔다.
+ */
+export function MailLink({
+  email,
+  subject,
+  className = '',
+}: {
+  email: string;
+  /** 메일 앱 제목 줄에 미리 채울 문구 */
+  subject?: string;
+  className?: string;
+}) {
+  const href = `mailto:${email}${subject ? `?subject=${encodeURIComponent(subject)}` : ''}`;
+  return (
+    <a
+      href={href}
+      className={`underline decoration-stone-600 underline-offset-2 transition-colors hover:text-gold hover:decoration-gold ${className}`}
+      title={`${email} — 클릭하면 기본 메일 앱이 열립니다`}
+    >
+      {email}
+    </a>
+  );
+}
+
+/** 클립보드에 문자열을 복사하는 작은 버튼. 복사 결과를 그 자리에서 알려 준다. */
+export function CopyButton({ value, label = '복사' }: { value: string; label?: string }) {
+  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
+  return (
+    <Tooltip text={`${value} 를 클립보드에 복사합니다.`}>
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setState('done');
+          } catch {
+            // 브라우저가 클립보드 접근을 막는 경우가 있다. 성공한 척하지 않는다.
+            setState('failed');
+          }
+          setTimeout(() => setState('idle'), 1800);
+        }}
+        className="rounded-md border border-stone-700 px-1.5 py-0.5 text-[10px] text-stone-400 transition-colors hover:border-gold hover:text-gold"
+      >
+        {state === 'done' ? '복사됨' : state === 'failed' ? '복사 실패' : label}
+      </button>
+    </Tooltip>
+  );
+}
+
 export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'warn' }) {
   const t =
     tone === 'warn'

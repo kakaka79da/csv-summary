@@ -7,7 +7,7 @@ import { useWorld } from '@/state/store';
 import { clock, money } from '@/lib/format';
 import { downloadCsv } from '@/lib/csv';
 import { DOMESTIC_BRANCH_PRESETS, EMPLOYEE_APPEARANCES, OVERSEAS_BRANCH_PRESETS, PLATFORM_MAKER } from '@/data/seed';
-import { Badge, Button, Field, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
+import { Badge, Button, Field, MailLink, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
 import type { BranchStatus, Company, HumanStaffRecord, WorkMode } from '@/types';
 
 const BRANCH_STATUS_LABEL: Record<BranchStatus, string> = {
@@ -351,7 +351,7 @@ function HumanStaffSection() {
             <div key={r.id} className="rounded-lg border border-gold/30 bg-stone-950/40 px-3 py-2 text-[11px]">
               <div className="flex items-center justify-between">
                 <span className="text-stone-100">
-                  {r.name} <span className="text-stone-500">· {r.email}</span>
+                  {r.name} <span className="text-stone-500">· <MailLink email={r.email} /></span>
                 </span>
                 <Badge tone="gold">처리중</Badge>
               </div>
@@ -436,7 +436,7 @@ function RosterRow({
     <div className="rounded-lg border border-stone-800 px-3 py-2 text-[11px]">
       <div className="flex items-center justify-between">
         <span className="text-stone-100">
-          {record.name} <span className="text-stone-500">· {record.email}</span>
+          {record.name} <span className="text-stone-500">· <MailLink email={record.email} /></span>
         </span>
         <Badge tone={record.status === 'approved' ? 'vital' : 'ember'}>
           {record.status === 'approved' ? WORK_MODE_LABEL[record.workMode] : '내보냄'}
