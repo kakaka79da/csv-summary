@@ -37,14 +37,25 @@ if (!jsFile || !cssFile) {
 const js = readFileSync(join(ASSETS, jsFile), 'utf8').replaceAll('</script', '<\\/script');
 const css = readFileSync(join(ASSETS, cssFile), 'utf8');
 
-const out = `<title>길드 오피스</title>
+// 완전한 문서로 내보낸다. file:// 로 열면 인코딩을 알려 줄 HTTP 헤더가 없어서,
+// <meta charset> 이 없으면 브라우저가 추측하다가 한글이 깨질 수 있다.
+const out = `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>길드 오피스</title>
 <style>
 ${css}
 </style>
+</head>
+<body>
 <div id="root"></div>
 <script type="module">
 ${js}
 </script>
+</body>
+</html>
 `;
 
 const target = resolve(process.argv[2] ?? join(DIST, 'guild-office-demo.html'));
