@@ -431,6 +431,12 @@ export interface WorldActions {
   openPanel: (p: WorldState['ui']['openPanel']) => void;
   setToast: (t: string | null) => void;
 
+  /**
+   * 전체(전사 공용) 채팅방이 없으면 만들어 목록 맨 앞에 둔다.
+   * 회사가 있는 한 이 방은 언제나 존재해야 하므로, 로그인·저장값 복원 시 호출한다.
+   */
+  ensureCompanyWideRoom: () => void;
+
   /** 관측값을 반영한다. 수동 고정 중이면 상태는 그대로 두고 온도·좌표만 갱신한다. */
   applyWeather: (reading: WeatherReading) => void;
   /** 날씨를 수동으로 고정하거나(테스트용) null 로 자동 관측에 되돌린다. */
@@ -520,6 +526,28 @@ function makeCompanyWideRoom(ceoName: string): ChatRoom {
   return { id: ROOM_ALL_ID, kind: 'company_wide', name: '전체', memberIds: [], createdAt: Date.now(), createdBy: ceoName };
 }
 
+/**
+ * 전체(전사 공용) 채팅방은 **회사가 있는 한 언제나 있어야 한다**.
+ *
+ * 창립할 때 만들기는 하지만, 그것만으로는 부족하다 — 이 기능이 생기기 전에
+ * 저장된 localStorage 에는 회사만 있고 전체방이 없어서 채팅방 화면이 텅 비어
+ * 보인다. 그래서 로그인할 때와 저장값을 불러올 때 여기서 한 번 더 보장한다.
+ * 목록 맨 앞자리도 함께 지킨다(전체방이 언제나 첫 번째로 열리도록).
+ *
+ * 바꿀 것이 없으면 null 을 돌려준다 — 불필요한 set 으로 화면을 다시 그리지 않는다.
+ */
+function withCompanyWideRoom(
+  s: Pick<WorldState, 'company' | 'chatRooms' | 'chatRoomOrder'>,
+): { chatRooms: Record<string, ChatRoom>; chatRoomOrder: string[] } | null {
+  if (!s.company) return null;
+  const existing = s.chatRooms[ROOM_ALL_ID];
+  if (existing && s.chatRoomOrder[0] === ROOM_ALL_ID) return null;
+  return {
+    chatRooms: { ...s.chatRooms, [ROOM_ALL_ID]: existing ?? makeCompanyWideRoom(s.company.ceoName) },
+    chatRoomOrder: [ROOM_ALL_ID, ...s.chatRoomOrder.filter((id) => id !== ROOM_ALL_ID)],
+  };
+}
+
 function pushMessage(
   chats: Record<string, Message[]>,
   employeeId: string,
@@ -607,6 +635,8 @@ export const useWorld = create<Store>()(
           session: { role, accountName, demo: true },
           phase,
           audit: audit(s.audit, accountName, '데모 로그인', role, '실제 인증 아님 (백엔드 구현 항목)'),
+          // 전체 채팅방은 언제나 있어야 한다 (예전 저장 데이터 보정 포함).
+          ...(withCompanyWideRoom(s) ?? {}),
         });
       },
 
@@ -2066,6 +2096,11 @@ export const useWorld = create<Store>()(
       openPanel: (p) => set((s) => ({ ui: { ...s.ui, openPanel: p } })),
       setToast: (t) => set((s) => ({ ui: { ...s.ui, toast: t } })),
 
+      ensureCompanyWideRoom: () => {
+        const patch = withCompanyWideRoom(get());
+        if (patch) set(patch);
+      },
+
       /* ── 날씨 ────────────────────────────────────────────────────── */
 
       applyWeather: (reading) =>
@@ -2108,6 +2143,13 @@ export const useWorld = create<Store>()(
     {
       name: 'guild-office-v1',
       storage: createJSONStorage(() => localStorage),
+      /**
+       * 저장값을 불러온 직후 보정한다. 전체 채팅방이 생기기 전에 저장된 데이터에는
+       * 회사만 있고 방이 없어서 채팅방 화면이 비어 보이기 때문이다.
+       */
+      onRehydrateStorage: () => (state) => {
+        state?.ensureCompanyWideRoom();
+      },
       /**
        * 영속화 대상. UI 임시 상태는 저장하지 않는다.
        * 비밀값은 애초에 상태에 존재하지 않으므로 여기서 걸러낼 것도 없다.

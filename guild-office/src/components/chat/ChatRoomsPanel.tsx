@@ -35,7 +35,8 @@ export default function ChatRoomsPanel() {
 
   if (!company) return null;
   const isCeo = session?.role === 'ceo';
-  const activeRoomId = selected ?? ROOM_ALL_ID;
+  // 전체방은 스토어가 항상 만들어 두므로 기본으로 열린다. 혹시라도 없으면 첫 방을 연다.
+  const activeRoomId = selected ?? (chatRooms[ROOM_ALL_ID] ? ROOM_ALL_ID : (chatRoomOrder[0] ?? ''));
   const activeRoom = chatRooms[activeRoomId];
 
   return (
@@ -54,6 +55,11 @@ export default function ChatRoomsPanel() {
               }`}
             >
               <span className="text-stone-100">{room.kind === 'company_wide' ? '🏢 ' : '💬 '}{room.name}</span>
+              {room.kind === 'company_wide' ? (
+                <span className="mt-0.5 block text-[10px] text-stone-500">
+                  기본 방 · 모든 직원이 자동 참여
+                </span>
+              ) : null}
             </button>
           );
         })}

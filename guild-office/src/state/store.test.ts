@@ -1029,6 +1029,31 @@ describe('부서·전사 공용 채팅방', () => {
     expect(s.chatRooms['room_all'].kind).toBe('company_wide');
   });
 
+  it('전체 방이 없는 예전 저장 데이터라도 로그인하면 다시 만들어 준다', () => {
+    bootstrap();
+    // 이 기능이 생기기 전에 저장된 상태를 흉내낸다 — 회사는 있는데 전체 방이 없다.
+    useWorld.setState({ chatRooms: {}, chatRoomOrder: [] });
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    expect(useWorld.getState().chatRooms['room_all'].kind).toBe('company_wide');
+    expect(useWorld.getState().chatRoomOrder[0]).toBe('room_all');
+  });
+
+  it('전체 방은 목록 맨 앞자리를 지킨다 (기본으로 먼저 열리도록)', () => {
+    bootstrap();
+    const team = useWorld.getState().createTeamRoom('기술팀');
+    // 순서가 뒤집힌 상태를 만들어 두고 보정되는지 본다.
+    useWorld.setState({ chatRoomOrder: [team.roomId!, 'room_all'] });
+    useWorld.getState().ensureCompanyWideRoom();
+    expect(useWorld.getState().chatRoomOrder).toEqual(['room_all', team.roomId]);
+  });
+
+  it('회사가 없으면 전체 방을 만들지 않는다', () => {
+    useWorld.getState().resetAll();
+    useWorld.getState().ensureCompanyWideRoom();
+    expect(useWorld.getState().chatRooms['room_all']).toBeUndefined();
+  });
+
   it('대표는 부서 채팅방을 만들고, 이름이 비어 있으면 거절한다', () => {
     bootstrap();
     const r = useWorld.getState().createTeamRoom('기술팀');
