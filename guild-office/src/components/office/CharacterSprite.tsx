@@ -175,6 +175,7 @@ function StrategistBody({ state, working }: BodyProps) {
 
       {/* 데이터가 흐르는 투명 결재판 */}
       <motion.g
+        initial={false}
         animate={working ? { y: [0, -0.5, 0], opacity: [0.9, 1, 0.9] } : { opacity: 0.8 }}
         transition={{ duration: 2.2, repeat: Infinity }}
       >
@@ -339,6 +340,7 @@ function EngineerBody({ state, working }: BodyProps) {
       {/* 홀로그램 패널 (기본) */}
       {!fighting && !handing ? (
         <motion.g
+          initial={false}
           animate={working ? { y: [0, -0.6, 0], opacity: [0.85, 1, 0.85] } : { opacity: 0.75 }}
           transition={{ duration: 1.8, repeat: Infinity }}
         >
@@ -461,6 +463,7 @@ function SageBody({ state, working }: BodyProps) {
       {/* 허공에 떠 있는 반투명 문서 */}
       {!defending ? (
         <motion.g
+          initial={false}
           animate={working ? { y: [0, -0.7, 0], opacity: [0.85, 1, 0.85] } : { opacity: 0.68 }}
           transition={{ duration: 2.6, repeat: Infinity }}
         >

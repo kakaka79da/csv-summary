@@ -413,8 +413,13 @@ function LimitEditor({
 /* ─────────────────────────── 활동 기록 ──────────────────────────────── */
 
 function ActivityLog({ employeeId }: { employeeId: string }) {
-  const ledger = useWorld((s) => s.ledger.filter((e) => e.employeeId === employeeId));
+  // 셀렉터 안에서 filter 하면 안 된다 — 호출할 때마다 새 배열이 나오고, zustand 는
+  // 참조로 같은지 보기 때문에 "바뀌었다"고 판단한다. tick 이 매 프레임 도는 이 앱에서는
+  // 그대로 무한 렌더 루프가 되어 React 가 오류를 던진다.
+  // 원본 배열을 그대로 받아 오고, 걸러내는 일은 useMemo 로 화면 쪽에서 한다.
+  const allLedger = useWorld((s) => s.ledger);
   const company = useWorld((s) => s.company);
+  const ledger = useMemo(() => allLedger.filter((e) => e.employeeId === employeeId), [allLedger, employeeId]);
   if (!company) return null;
   if (ledger.length === 0) return <p className="text-xs text-stone-600">아직 기록이 없습니다.</p>;
   return (
