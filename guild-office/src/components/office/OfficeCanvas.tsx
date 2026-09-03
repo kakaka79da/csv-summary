@@ -17,6 +17,8 @@ import { GRID } from '@/data/world';
 import { useWorld } from '@/state/store';
 import CharacterSprite from '@/components/office/CharacterSprite';
 import PriorityMeetingModal from '@/components/office/PriorityMeetingModal';
+import WeatherOverlay from '@/components/office/WeatherOverlay';
+import { DAY_PHASE_LABEL, WEATHER_LABEL, phaseFor } from '@/lib/weather';
 import {
   Countryside,
   FenceTile,
@@ -148,7 +150,17 @@ export default function OfficeCanvas() {
   const select = useWorld((s) => s.selectEmployee);
   const sendToRoom = useWorld((s) => s.sendEmployeeToRoom);
   const setToast = useWorld((s) => s.setToast);
+  const weather = useWorld((s) => s.weather);
   const [meetingOpen, setMeetingOpen] = useState(false);
+
+  // 날씨 효과가 덮을 영역 = viewBox 전체 (바깥 시골 풍경까지 함께 젖는다)
+  const VIEW: { x: number; y: number; w: number; h: number } = {
+    x: -MARGIN,
+    y: -MARGIN,
+    w: OFFICE_W + MARGIN + RIGHT_MARGIN,
+    h: OFFICE_H + MARGIN * 2,
+  };
+  const phase = phaseFor(new Date().getHours(), weather.isDay, weather.source);
 
   // 대사 말풍선은 실제 벽시계 시각 기준으로 사라지므로 렌더링 때마다 다시 계산한다.
   // 시뮬레이션이 도는 동안은 매 프레임 다시 그려지므로 자연스럽게 옅어지듯 사라진다.
@@ -190,7 +202,7 @@ export default function OfficeCanvas() {
   return (
     <div className="panel overflow-hidden">
       <svg
-        viewBox={`${-MARGIN} ${-MARGIN} ${OFFICE_W + MARGIN + RIGHT_MARGIN} ${OFFICE_H + MARGIN * 2}`}
+        viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`}
         className="block w-full"
         role="img"
         aria-label="오피스 평면도"
@@ -447,6 +459,11 @@ export default function OfficeCanvas() {
             </g>
           );
         })}
+
+        {/* 날씨 — 캐릭터까지 포함해 화면 전체를 덮으므로 맨 마지막에 그린다. */}
+        {weather.effects ? (
+          <WeatherOverlay condition={weather.condition} phase={phase} bounds={VIEW} />
+        ) : null}
       </svg>
 
       {/* 범례 — 게임 표현과 실제 의미를 연결한다 */}
@@ -462,6 +479,17 @@ export default function OfficeCanvas() {
         <span>
           <span className="mr-1 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: PALETTE.gravel }} />
           자갈길 = 이동 경로
+        </span>
+        <span>
+          {WEATHER_LABEL[weather.condition].icon} 화면 날씨 = {WEATHER_LABEL[weather.condition].ko} ·{' '}
+          {DAY_PHASE_LABEL[phase]}
+          {weather.source === 'gps'
+            ? ' (현위치 실제 관측값)'
+            : weather.source === 'fallback'
+              ? ' (기본 위치 서울)'
+              : weather.source === 'manual'
+                ? ' (수동 고정 — 실제 값 아님)'
+                : ' (아직 못 받아옴)'}
         </span>
         <span>캐릭터 이름표의 뒷부분은 현재 상태이며, 정확한 의미는 직원 패널에서 확인할 수 있습니다.</span>
         <span>회의 테이블을 더블클릭하면 우선순위 회의를 소집할 수 있습니다.</span>

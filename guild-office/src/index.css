@@ -40,3 +40,86 @@
     background: transparent;
   }
 }
+
+/* ───────────────────────── 날씨 효과 ─────────────────────────
+ * 오피스 SVG 위에 비/눈/안개를 그린다. 애니메이션은 전부 CSS 로 돌린다 —
+ * React 상태로 매 프레임 다시 그리면 시뮬레이션 tick 과 겹쳐 화면이 무거워진다.
+ * SVG 요소의 CSS transform 길이는 user unit(= viewBox 단위)으로 해석되므로
+ * 아래 px 값은 곧 타일 수를 뜻한다.
+ */
+@keyframes wx-fall {
+  from {
+    transform: translate(0px, 0px);
+  }
+  to {
+    transform: translate(var(--wx-dx, 0px), var(--wx-dist, 34px));
+  }
+}
+
+/* 눈송이가 좌우로 흔들리며 내려오도록, 낙하 그룹 안에 한 겹 더 준다. */
+@keyframes wx-sway {
+  0%,
+  100% {
+    transform: translateX(-0.5px);
+  }
+  50% {
+    transform: translateX(0.5px);
+  }
+}
+
+/* 안개·구름 층이 천천히 흘러간다. */
+@keyframes wx-drift {
+  from {
+    transform: translateX(-6px);
+  }
+  to {
+    transform: translateX(6px);
+  }
+}
+
+/* 번개 — 대부분의 시간은 투명하고 아주 잠깐 두 번 번쩍인다. */
+@keyframes wx-flash {
+  0%,
+  90%,
+  100% {
+    opacity: 0;
+  }
+  91% {
+    opacity: 0.5;
+  }
+  93% {
+    opacity: 0.08;
+  }
+  94.5% {
+    opacity: 0.38;
+  }
+  97% {
+    opacity: 0;
+  }
+}
+
+.wx-fall {
+  animation: wx-fall linear infinite;
+}
+.wx-sway {
+  animation: wx-sway ease-in-out infinite alternate;
+}
+.wx-drift {
+  animation: wx-drift ease-in-out infinite alternate;
+}
+.wx-flash {
+  animation: wx-flash linear infinite;
+}
+
+/* 움직임을 줄여 달라고 설정한 사용자에게는 날씨도 정지 화면으로 보여 준다. */
+@media (prefers-reduced-motion: reduce) {
+  .wx-fall,
+  .wx-sway,
+  .wx-drift,
+  .wx-flash {
+    animation: none;
+  }
+  .wx-flash {
+    opacity: 0;
+  }
+}

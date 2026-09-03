@@ -24,6 +24,7 @@ import {
   roomById,
 } from '@/data/seed';
 import { advanceAlongPath, findPath } from '@/lib/pathfinding';
+import type { WeatherCondition, WeatherReading, WeatherSource } from '@/lib/weather';
 import { clamp, nid } from '@/lib/format';
 import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
 import { DRIVE_ROOT_FOLDER_URL, seedMemory, type MemoryAgreement } from '@/data/memorySeed';
@@ -190,6 +191,29 @@ export interface WorldState {
    * easterEgg 와 마찬가지로 새로고침 시 초기화된다(partialize 에 포함하지 않음).
    */
   simulationMode: boolean;
+
+  /**
+   * 현위치 날씨. 오피스 화면에 비/눈 같은 효과로 그려진다.
+   *
+   * 관측값은 브라우저에서 직접 받아오므로(useWeather 훅) 서버에 아무것도 남지
+   * 않는다. 좌표는 소수점 2자리로 깎아서 보관한다(개인정보 최소화).
+   * easterEgg / simulationMode 와 마찬가지로 새로고침하면 초기화된다 —
+   * 날씨는 캐시할 값이 아니라 매번 다시 받아오는 값이다.
+   */
+  weather: {
+    condition: WeatherCondition;
+    temperatureC: number | null;
+    isDay: boolean;
+    coords: { lat: number; lon: number } | null;
+    source: WeatherSource;
+    /** 수동으로 고정한 날씨. 값이 있으면 자동 갱신이 이 값을 덮어쓰지 않는다. */
+    manual: WeatherCondition | null;
+    /** 화면 효과 표시 여부 (멀미·저사양 기기를 위해 끌 수 있다) */
+    effects: boolean;
+    /** 사용자에게 그대로 보여 줄 상태 문구 — "위치 권한 거부됨" 등 */
+    note: string | null;
+    updatedAt: number | null;
+  };
 }
 
 export interface WorldActions {
@@ -407,6 +431,15 @@ export interface WorldActions {
   openPanel: (p: WorldState['ui']['openPanel']) => void;
   setToast: (t: string | null) => void;
 
+  /** 관측값을 반영한다. 수동 고정 중이면 상태는 그대로 두고 온도·좌표만 갱신한다. */
+  applyWeather: (reading: WeatherReading) => void;
+  /** 날씨를 수동으로 고정하거나(테스트용) null 로 자동 관측에 되돌린다. */
+  setWeatherManual: (condition: WeatherCondition | null) => void;
+  /** 화면 효과를 켜고 끈다. */
+  setWeatherEffects: (on: boolean) => void;
+  /** 위치 권한 거부·네트워크 차단 등 사용자에게 보여 줄 문구를 남긴다. */
+  setWeatherNote: (note: string | null) => void;
+
   tick: (dtMs: number) => void;
   resetAll: () => void;
 }
@@ -444,6 +477,17 @@ const initialState: WorldState = {
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
   easterEgg: initialEasterEgg,
   simulationMode: false,
+  weather: {
+    condition: 'clear',
+    temperatureC: null,
+    isDay: true,
+    coords: null,
+    source: 'none',
+    manual: null,
+    effects: true,
+    note: null,
+    updatedAt: null,
+  },
 };
 
 /* ────────────────────────────── 보조 함수 ────────────────────────────── */
@@ -2021,6 +2065,40 @@ export const useWorld = create<Store>()(
       selectEmployee: (id) => set((s) => ({ ui: { ...s.ui, selectedEmployeeId: id } })),
       openPanel: (p) => set((s) => ({ ui: { ...s.ui, openPanel: p } })),
       setToast: (t) => set((s) => ({ ui: { ...s.ui, toast: t } })),
+
+      /* ── 날씨 ────────────────────────────────────────────────────── */
+
+      applyWeather: (reading) =>
+        set((s) => ({
+          weather: {
+            ...s.weather,
+            // 수동 고정 중에는 사람이 고른 값을 존중한다 — 자동 갱신이 덮지 않는다.
+            condition: s.weather.manual ?? reading.condition,
+            temperatureC: reading.temperatureC,
+            isDay: reading.isDay,
+            coords: reading.coords,
+            source: s.weather.manual ? 'manual' : reading.source,
+            note: null,
+            updatedAt: reading.observedAt,
+          },
+        })),
+
+      setWeatherManual: (condition) =>
+        set((s) => ({
+          weather: {
+            ...s.weather,
+            manual: condition,
+            condition: condition ?? s.weather.condition,
+            // 자동으로 되돌리면 다음 관측이 올 때까지는 마지막 출처를 알 수 없다.
+            source: condition ? 'manual' : 'none',
+            note: condition ? '수동으로 고정된 날씨입니다 (실제 관측값 아님).' : null,
+            updatedAt: Date.now(),
+          },
+        })),
+
+      setWeatherEffects: (on) => set((s) => ({ weather: { ...s.weather, effects: on } })),
+
+      setWeatherNote: (note) => set((s) => ({ weather: { ...s.weather, note } })),
 
       /* ── 시뮬레이션 루프 ──────────────────────────────────────────── */
       tick: (dtMs) => set((s) => advanceWorld(s, dtMs)),

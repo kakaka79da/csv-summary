@@ -22,6 +22,7 @@ import CostDashboard from '@/components/cost/CostDashboard';
 import AuditLog from '@/components/audit/AuditLog';
 import { PeoplePanel, SettingsPanel } from '@/components/panels/SidePanels';
 import AdminDashboard from '@/components/admin/AdminDashboard';
+import WeatherWidget from '@/components/weather/WeatherWidget';
 import { Badge, Button, Modal, Notice } from '@/components/ui/primitives';
 import { AGENT_STATE_LABEL, money } from '@/lib/format';
 import type { HumanStaffRecord } from '@/types';
@@ -180,6 +181,7 @@ function AppHeader() {
             </span>
           ) : null}
           {pending > 0 ? <Badge tone="gold">승인 대기 {pending}</Badge> : null}
+          <WeatherWidget />
           <span className="text-stone-500">
             로그인: <span className="text-stone-300">{session?.accountName}</span>
             <span className="ml-1 text-stone-600">

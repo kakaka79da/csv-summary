@@ -22,6 +22,7 @@
 | 구글 드라이브 연결 | 대표가 직접 만든 폴더 링크를 수동으로 붙여넣음 (`Company.driveFolderUrl`) | `components/panels/SidePanels.tsx` 의 `DriveConnectionSetting`, `store.setCompanyDriveLink` | OAuth 2.0(각 회사별 토큰), Drive API 업로드 프록시, 채팅/자료 첨부 시 자동 라우팅 |
 | 미연결 시 임시 저장 | 없음 (이 데모에는 서버가 없어 구현 불가) | 신규 | 서버 스토리지(S3 등) + TTL 기반 자동 삭제 배치 |
 | 채팅 파일 첨부 | 없음 (텍스트 메시지만) | `types/index.ts` 의 `Message`, `store.sendChat` | 첨부 필드 추가 + 업로드 API |
+| 날씨 | 브라우저에서 직접 Open-Meteo 호출 (키 불필요) | `hooks/useWeather.ts` | 그대로 두어도 된다. 호출량이 문제가 되면 서버에서 좌표 격자 단위로 캐시하는 프록시를 두는 정도 |
 
 ---
 
