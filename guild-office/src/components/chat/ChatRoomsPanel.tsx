@@ -12,6 +12,8 @@ import { useMemo, useState } from 'react';
 import { useWorld, ROOM_ALL_ID } from '@/state/store';
 import { clock } from '@/lib/format';
 import { Badge, Button, Notice, Select, TextInput } from '@/components/ui/primitives';
+import { AttachmentList, AttachmentPicker } from '@/components/chat/Attachments';
+import type { Attachment } from '@/lib/attachments';
 import type { ChatRoom, ChatRoomAuthorKind, Employee, HumanStaffRecord } from '@/types';
 
 function resolveMember(
@@ -104,8 +106,10 @@ function RoomThread({ room }: { room: ChatRoom }) {
   const proposeRoomInvite = useWorld((s) => s.proposeRoomInvite);
   const decideRoomInvite = useWorld((s) => s.decideRoomInvite);
   const [draft, setDraft] = useState('');
+  const [picked, setPicked] = useState<Attachment[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const attachmentBytesUsed = useWorld((s) => s.attachmentBytesUsed);
 
   const isCeo = session?.role === 'ceo';
   const myHumanId = session?.role === 'human_staff' ? session.humanStaffId ?? null : null;
@@ -125,6 +129,17 @@ function RoomThread({ room }: { room: ChatRoom }) {
   const canSend = isCeo || (myHumanId && isMember);
 
   const roomInvites = invites.filter((i) => i.roomId === room.id && i.status === 'pending');
+
+  const submit = () => {
+    const r = sendRoomMessage(room.id, draft, picked.length > 0 ? picked : undefined);
+    if (!r.ok) {
+      setError(r.error ?? '보낼 수 없습니다.');
+      return;
+    }
+    setError(null);
+    setDraft('');
+    setPicked([]);
+  };
 
   const nonMembers = useMemo(() => {
     if (room.kind !== 'team') return [];
@@ -211,25 +226,39 @@ function RoomThread({ room }: { room: ChatRoom }) {
               <span className={m.authorKind === 'ceo' ? 'text-gold' : 'text-stone-300'}>{m.authorName}</span>
               <span className="text-stone-600">{clock(m.ts)}</span>
             </div>
-            <p className="mt-0.5 text-stone-200">{m.text}</p>
+            {m.text ? <p className="mt-0.5 text-stone-200">{m.text}</p> : null}
+            {m.attachments && m.attachments.length > 0 ? <AttachmentList items={m.attachments} /> : null}
           </div>
         ))}
         {messages.length === 0 ? <p className="text-stone-600">아직 메시지가 없습니다.</p> : null}
       </div>
 
       {canSend ? (
-        <div className="mt-2 flex gap-2">
-          <TextInput value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="메시지 입력…" />
-          <Button
-            size="sm"
-            disabled={!draft.trim()}
-            onClick={() => {
-              sendRoomMessage(room.id, draft);
-              setDraft('');
-            }}
-          >
-            전송
-          </Button>
+        <div className="mt-2 space-y-1.5">
+          <div className="flex gap-2">
+            <TextInput
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder="메시지 입력…"
+            />
+            <span className="shrink-0">
+              <Button size="sm" disabled={!draft.trim() && picked.length === 0} onClick={submit}>
+                전송
+              </Button>
+            </span>
+          </div>
+          <AttachmentPicker
+            picked={picked}
+            onChange={setPicked}
+            usedBytes={attachmentBytesUsed()}
+            onError={setError}
+          />
         </div>
       ) : myHumanId ? (
         <div className="mt-2">

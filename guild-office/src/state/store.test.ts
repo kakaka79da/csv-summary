@@ -1069,6 +1069,160 @@ describe('대표 ↔ 인간 사원 1:1 대화', () => {
   });
 });
 
+describe('일정 · 타임라인', () => {
+  it('대표는 전사 공용 일정과 지사 일정을 넣을 수 있다', () => {
+    bootstrap();
+    expect(
+      useWorld.getState().addScheduleEvent({
+        title: '전사 워크숍',
+        kind: 'meeting',
+        branchId: null,
+        startDay: '2026-09-10',
+        endDay: '2026-09-11',
+      }).ok,
+    ).toBe(true);
+    expect(
+      useWorld.getState().addScheduleEvent({
+        title: '본사 대청소',
+        kind: 'other',
+        branchId: 'branch_hq',
+        startDay: '2026-09-12',
+        endDay: '2026-09-12',
+      }).ok,
+    ).toBe(true);
+    expect(useWorld.getState().schedule).toHaveLength(2);
+  });
+
+  it('없는 지사에는 붙일 수 없다 — 화면 어디에도 안 보이는 유령이 되기 때문', () => {
+    bootstrap();
+    const r = useWorld.getState().addScheduleEvent({
+      title: '유령 일정',
+      kind: 'other',
+      branchId: 'branch_없음',
+      startDay: '2026-09-10',
+      endDay: '2026-09-10',
+    });
+    expect(r.ok).toBe(false);
+    expect(useWorld.getState().schedule).toHaveLength(0);
+  });
+
+  it('끝이 시작보다 앞서면 거절한다', () => {
+    bootstrap();
+    const r = useWorld.getState().addScheduleEvent({
+      title: '거꾸로',
+      kind: 'other',
+      branchId: null,
+      startDay: '2026-09-20',
+      endDay: '2026-09-10',
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('대표가 아니면 일정을 넣거나 지울 수 없다', () => {
+    bootstrap();
+    useWorld.getState().addScheduleEvent({
+      title: '전사 워크숍',
+      kind: 'meeting',
+      branchId: null,
+      startDay: '2026-09-10',
+      endDay: '2026-09-11',
+    });
+    const id = useWorld.getState().schedule[0].id;
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+
+    expect(
+      useWorld.getState().addScheduleEvent({
+        title: '몰래',
+        kind: 'other',
+        branchId: null,
+        startDay: '2026-09-10',
+        endDay: '2026-09-10',
+      }).ok,
+    ).toBe(false);
+    expect(useWorld.getState().removeScheduleEvent(id).ok).toBe(false);
+    expect(useWorld.getState().schedule).toHaveLength(1);
+  });
+});
+
+describe('채팅 첨부 파일', () => {
+  const file = (size: number, name = 'a.txt') => ({
+    id: `att_${name}`,
+    name,
+    mime: 'text/plain',
+    size,
+    dataUrl: 'data:text/plain;base64,QQ==',
+    ts: 0,
+  });
+
+  it('첨부만 있고 글이 없어도 보낼 수 있다', () => {
+    bootstrap();
+    const r = useWorld.getState().sendRoomMessage('room_all', '', [file(100)]);
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().chatRoomMessages['room_all'][0].attachments).toHaveLength(1);
+  });
+
+  it('글도 첨부도 없으면 거절한다', () => {
+    bootstrap();
+    expect(useWorld.getState().sendRoomMessage('room_all', '   ').ok).toBe(false);
+  });
+
+  it('파일 하나가 상한을 넘으면 거절하고 아무것도 남기지 않는다', () => {
+    bootstrap();
+    const r = useWorld.getState().sendRoomMessage('room_all', '자료', [file(600 * 1024, '큰파일.bin')]);
+    expect(r.ok).toBe(false);
+    expect(useWorld.getState().chatRoomMessages['room_all']).toBeUndefined();
+  });
+
+  it('쓴 용량을 방과 1:1 대화에서 함께 센다', () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().sendRoomMessage('room_all', '방', [file(1000, 'r.txt')]);
+    useWorld.getState().sendStaffMessage(id, '1:1', [file(2000, 's.txt')]);
+    expect(useWorld.getState().attachmentBytesUsed()).toBe(3000);
+  });
+
+  it('전체 예산을 넘으면 거절한다', () => {
+    bootstrap();
+    // 예산 2MB, 파일당 512KB → 4개까지 들어가고 5번째가 거절돼야 한다
+    for (let i = 0; i < 4; i++) {
+      expect(useWorld.getState().sendRoomMessage('room_all', `${i}`, [file(512 * 1024, `f${i}.bin`)]).ok).toBe(true);
+    }
+    const r = useWorld.getState().sendRoomMessage('room_all', '5번째', [file(1024, 'f5.bin')]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('남은 용량');
+  });
+});
+
+describe('사원 근태 자기 변경', () => {
+  it('사원이 자기 근태를 스스로 바꾼다', () => {
+    bootstrap();
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    expect(useWorld.getState().updateOwnWorkMode('remote').ok).toBe(true);
+    const id = useWorld.getState().session!.humanStaffId!;
+    expect(useWorld.getState().humanStaff[id].workMode).toBe('remote');
+  });
+
+  it('휴가 중에는 스스로 되돌릴 수 없다 — 승인 항목이기 때문', () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().updateHumanStaff(id, { workMode: 'leave' });
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    const r = useWorld.getState().updateOwnWorkMode('office');
+    expect(r.ok).toBe(false);
+    expect(useWorld.getState().humanStaff[id].workMode).toBe('leave');
+  });
+
+  it('대표는 이 통로를 쓸 수 없다 (대표는 명부에서 바꾼다)', () => {
+    bootstrap();
+    expect(useWorld.getState().updateOwnWorkMode('remote').ok).toBe(false);
+  });
+});
+
 describe('부서·전사 공용 채팅방', () => {
   it('회사를 창립하면 전사 공용 방(전체)이 자동으로 생긴다', () => {
     bootstrap();

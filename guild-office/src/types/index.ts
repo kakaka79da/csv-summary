@@ -280,6 +280,52 @@ export interface StaffMessage {
   authorName: string;
   text: string;
   ts: number;
+  attachments?: Attachment[];
+}
+
+/* ─────────────────────────── 첨부 파일 ─────────────────────────── */
+
+/**
+ * 채팅에 붙인 파일.
+ *
+ * ⚠️ 이 앱에는 서버가 없다. 파일 내용이 data: URL 로 브라우저 안에만 들어가며,
+ * 어디로도 전송되지 않는다. localStorage 용량이 한정돼 있어 크기 상한과 전체
+ * 예산으로 막는다 — 규칙은 `src/lib/attachments.ts` 에 있다.
+ */
+export interface Attachment {
+  id: string;
+  name: string;
+  mime: string;
+  /** 원본 바이트 수 */
+  size: number;
+  dataUrl: string;
+  ts: number;
+}
+
+/* ─────────────────────────── 일정 · 타임라인 ─────────────────────────── */
+
+export type ScheduleKind = 'project' | 'meeting' | 'deadline' | 'holiday' | 'trip' | 'other';
+
+/**
+ * 일정 한 건.
+ *
+ * 날짜는 `YYYY-MM-DD` 문자열이다. 타임스탬프로 두면 지사마다 시간대가 달라
+ * "같은 날인데 하루 밀려 보이는" 일이 생긴다. 일정은 '그 날짜'이지 '그 순간'이 아니다.
+ */
+export interface ScheduleEvent {
+  id: string;
+  title: string;
+  kind: ScheduleKind;
+  /** null = 전사 공용 일정 (어느 지사를 봐도 함께 보인다) */
+  branchId: string | null;
+  startDay: string;
+  endDay: string;
+  note: string;
+  ownerName: string;
+  createdBy: string;
+  createdAt: number;
+  /** 미션에서 자동으로 만든 막대인가. true 면 화면에서 지울 수 없다(읽기 전용). */
+  derived?: boolean;
 }
 
 /* ─────────────────────────── 지사 (국내·해외) ─────────────────────────── */
@@ -679,6 +725,7 @@ export interface ChatRoomMessage {
   authorName: string;
   text: string;
   ts: number;
+  attachments?: Attachment[];
 }
 
 export type ChatRoomInviteStatus = 'pending' | 'approved' | 'rejected';

@@ -12,6 +12,8 @@ import { EMPLOYEE_APPEARANCES } from '@/data/seed';
 import CharacterSprite from '@/components/office/CharacterSprite';
 import { clock, money } from '@/lib/format';
 import { Badge, Button, CopyButton, MailLink, Notice, SectionTitle, TextInput } from '@/components/ui/primitives';
+import { AttachmentList, AttachmentPicker } from '@/components/chat/Attachments';
+import type { Attachment } from '@/lib/attachments';
 import type { WorkMode } from '@/types';
 
 const WORK_MODE: Record<WorkMode, { label: string; tone: 'vital' | 'arcane' | 'neutral' | 'gold'; where: string }> = {
@@ -39,9 +41,12 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
   const messages = useWorld((s) => s.staffChats[staffId]);
   const sendStaffMessage = useWorld((s) => s.sendStaffMessage);
   const updateOwnTaskNote = useWorld((s) => s.updateOwnTaskNote);
+  const updateOwnWorkMode = useWorld((s) => s.updateOwnWorkMode);
   const selectStaff = useWorld((s) => s.selectStaff);
+  const attachmentBytesUsed = useWorld((s) => s.attachmentBytesUsed);
 
   const [draft, setDraft] = useState('');
+  const [picked, setPicked] = useState<Attachment[]>([]);
   const [noteDraft, setNoteDraft] = useState('');
   // 급여·연락처가 들어 있어 어깨너머로 보이기 쉬운 칸이다. 기본은 가려 둔다.
   const [infoOpen, setInfoOpen] = useState(false);
@@ -72,13 +77,14 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
   const mailSubject = `[${company.name}] `;
 
   const send = () => {
-    const r = sendStaffMessage(staffId, draft);
+    const r = sendStaffMessage(staffId, draft, picked.length > 0 ? picked : undefined);
     if (!r.ok) {
       setError(r.error ?? '보낼 수 없습니다.');
       return;
     }
     setError(null);
     setDraft('');
+    setPicked([]);
   };
 
   return (
@@ -133,7 +139,34 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
           )}
 
           {isSelf ? (
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 space-y-2">
+              <div>
+                <div className="text-[10px] text-stone-500">오늘 근태 — 본인이 바로 바꿀 수 있습니다</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {(['office', 'remote', 'not_started'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        const r = updateOwnWorkMode(m);
+                        if (!r.ok) setError(r.error ?? '바꿀 수 없습니다.');
+                        else setError(null);
+                      }}
+                      className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${
+                        record.workMode === m
+                          ? 'border-gold text-gold'
+                          : 'border-stone-700 text-stone-400 hover:border-stone-500'
+                      }`}
+                    >
+                      {WORK_MODE[m].label}
+                    </button>
+                  ))}
+                  <span className="self-center text-[10px] text-stone-600">
+                    휴가 · 연차는 대표 승인 항목이라 여기서 누를 수 없습니다
+                  </span>
+                </div>
+              </div>
+            <div className="flex gap-2">
               <TextInput
                 value={noteDraft}
                 onChange={(e) => setNoteDraft(e.target.value)}
@@ -144,6 +177,7 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
                   갱신
                 </Button>
               </span>
+            </div>
             </div>
           ) : null}
         </div>
@@ -220,7 +254,8 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
                   </span>
                   <span className="text-stone-600">{clock(m.ts)}</span>
                 </div>
-                <p className="mt-0.5 whitespace-pre-wrap text-stone-200">{m.text}</p>
+                {m.text ? <p className="mt-0.5 whitespace-pre-wrap text-stone-200">{m.text}</p> : null}
+                {m.attachments && m.attachments.length > 0 ? <AttachmentList items={m.attachments} /> : null}
               </div>
             ))}
             {thread.length === 0 ? <p className="text-stone-600">아직 주고받은 대화가 없습니다.</p> : null}
@@ -229,7 +264,8 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
           {error ? <p className="mt-1.5 text-[11px] text-ember">{error}</p> : null}
 
           {canChat ? (
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 space-y-1.5">
+            <div className="flex gap-2">
               <TextInput
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -243,10 +279,17 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
               />
               {/* 버튼이 줄바꿈되지 않도록 폭을 고정한다 (입력칸이 남는 폭을 다 가져간다). */}
               <span className="shrink-0">
-                <Button size="sm" disabled={!draft.trim()} onClick={send}>
+                <Button size="sm" disabled={!draft.trim() && picked.length === 0} onClick={send}>
                   전송
                 </Button>
               </span>
+            </div>
+            <AttachmentPicker
+              picked={picked}
+              onChange={setPicked}
+              usedBytes={attachmentBytesUsed()}
+              onError={setError}
+            />
             </div>
           ) : (
             <div className="mt-2">

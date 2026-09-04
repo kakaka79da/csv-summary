@@ -25,6 +25,8 @@ import {
 } from '@/data/seed';
 import { advanceAlongPath, findPath } from '@/lib/pathfinding';
 import type { WeatherCondition, WeatherReading, WeatherSource } from '@/lib/weather';
+import { checkAttachments, usedBytes } from '@/lib/attachments';
+import { validateEvent } from '@/lib/schedule';
 import { clamp, nid } from '@/lib/format';
 import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
 import { DRIVE_ROOT_FOLDER_URL, seedMemory, type MemoryAgreement } from '@/data/memorySeed';
@@ -49,6 +51,7 @@ import {
 } from '@/state/missionMachine';
 import type {
   Approval,
+  Attachment,
   ApprovalStatus,
   ArchivedCompany,
   Artifact,
@@ -77,10 +80,13 @@ import type {
   ProviderId,
   Role,
   RoomId,
+  ScheduleEvent,
+  ScheduleKind,
   Session,
   StaffMessage,
   TaskEstimate,
   ToolId,
+  WorkMode,
 } from '@/types';
 
 /** 전사 공용 채팅방은 회사마다 하나뿐이므로 고정 id 를 쓴다. */
@@ -166,6 +172,13 @@ export interface WorldState {
   chatRoomMessages: Record<string, ChatRoomMessage[]>;
   chatRoomInvites: ChatRoomInvite[];
 
+  /**
+   * 일정 · 타임라인. 지사별로 나눠 보되, branchId 가 null 인 것은 전사 공용이라
+   * 어느 지사를 봐도 함께 보인다. 미션에서 파생된 막대는 여기 저장하지 않고
+   * 화면에서 그때그때 만든다 — 저장하면 미션과 어긋날 수 있기 때문이다.
+   */
+  schedule: ScheduleEvent[];
+
   ui: {
     selectedEmployeeId: string | null;
     /** 오피스에서 선택한 인간 사원. AI 직원 선택과 동시에 켜지지 않는다. */
@@ -181,7 +194,8 @@ export interface WorldState {
       | 'settings'
       | 'graph'
       | 'rooms'
-      | 'status';
+      | 'status'
+      | 'schedule';
     /** 면담 대기열 (순서대로 1:1 면담) */
     interviewQueue: string[];
     toast: string | null;
@@ -407,7 +421,7 @@ export interface WorldActions {
    * 공용 방)에만 보낼 수 있다. AI 직원은 이 채팅방 기능에서는 아직 스스로
    * 말하지 않는다 — 기존 1:1 대화(chats)에서만 AI 응답이 오간다.
    */
-  sendRoomMessage: (roomId: string, text: string) => { ok: boolean; error?: string };
+  sendRoomMessage: (roomId: string, text: string, attachments?: Attachment[]) => { ok: boolean; error?: string };
 
   /**
    * 방에 누군가를 초대하자고 제안한다. 대표가 직접 부르면 즉시 확정되고,
@@ -430,10 +444,36 @@ export interface WorldActions {
   updateOwnTaskNote: (text: string) => { ok: boolean; error?: string };
 
   /**
+   * 사원이 자기 근태를 스스로 바꾼다.
+   *
+   * 원래는 대표만 바꿀 수 있었는데, 그러면 재택하는 날마다 대표에게 부탁해야 한다.
+   * 출근·재택·미출근은 본인이 아는 사실이므로 본인이 바꾸는 것이 맞다.
+   * 다만 **휴가·연차는 뺐다** — 그건 승인이 필요한 일이고, 스스로 누르는 순간
+   * 승인 절차가 무의미해진다. 휴가 신청 흐름은 별도 항목이다.
+   */
+  updateOwnWorkMode: (mode: Exclude<WorkMode, 'leave'>) => { ok: boolean; error?: string };
+
+  /**
    * 대표 ↔ 인간 사원 1:1 대화에 한 줄 보낸다.
    * 대표는 승인된 사원 누구에게나, 사원은 자기 스레드에만 쓸 수 있다.
    */
-  sendStaffMessage: (staffId: string, text: string) => { ok: boolean; error?: string };
+  sendStaffMessage: (staffId: string, text: string, attachments?: Attachment[]) => { ok: boolean; error?: string };
+
+  /** 회사 전체에서 지금까지 쓴 첨부 용량(원본 바이트). 화면에 남은 용량을 보여주기 위한 값. */
+  attachmentBytesUsed: () => number;
+
+  /** 일정을 추가한다. 대표만 할 수 있다. branchId 가 null 이면 전사 공용 일정이다. */
+  addScheduleEvent: (input: {
+    title: string;
+    kind: ScheduleKind;
+    branchId: string | null;
+    startDay: string;
+    endDay: string;
+    note?: string;
+  }) => { ok: boolean; error?: string };
+
+  /** 일정을 지운다. 대표만 할 수 있고, 미션에서 파생된 막대는 애초에 여기 없다. */
+  removeScheduleEvent: (id: string) => { ok: boolean; error?: string };
 
   /** 기억 한 줄을 append 한다 (교훈/사건/선호/정정). 기존 기억은 지우지 않는다. */
   addMemoryRecord: (
@@ -500,6 +540,7 @@ const initialState: WorldState = {
   chatRoomOrder: [],
   chatRoomMessages: {},
   chatRoomInvites: [],
+  schedule: [],
   ui: { selectedEmployeeId: null, selectedStaffId: null, openPanel: null, interviewQueue: [], toast: null },
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
   easterEgg: initialEasterEgg,
@@ -1332,6 +1373,7 @@ export const useWorld = create<Store>()(
               chatRoomOrder: [],
               chatRoomMessages: {},
               chatRoomInvites: [],
+              schedule: [],
               branches: {},
               branchOrder: [],
               tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
@@ -1935,10 +1977,18 @@ export const useWorld = create<Store>()(
         return { ok: true, roomId: id };
       },
 
-      sendRoomMessage: (roomId, text) => {
+      sendRoomMessage: (roomId, text, attachments) => {
         const s = get();
         const room = s.chatRooms[roomId];
-        if (!room || !s.session || !text.trim()) return { ok: false, error: '보낼 수 없습니다.' };
+        if (!room || !s.session) return { ok: false, error: '보낼 수 없습니다.' };
+        // 첨부만 보내는 것은 허용한다 — 파일 한 장을 던지는 일이 실제로 잦다.
+        if (!text.trim() && (!attachments || attachments.length === 0)) {
+          return { ok: false, error: '내용이나 파일을 넣어 주세요.' };
+        }
+        if (attachments && attachments.length > 0) {
+          const check = checkAttachments(get().attachmentBytesUsed(), attachments);
+          if (!check.ok) return check;
+        }
 
         let authorId: string;
         let authorKind: ChatRoomAuthorKind;
@@ -1959,7 +2009,16 @@ export const useWorld = create<Store>()(
           return { ok: false, error: '대표 또는 사원만 보낼 수 있습니다.' };
         }
 
-        const msg: ChatRoomMessage = { id: nid('rmsg'), roomId, authorId, authorKind, authorName, text: text.trim(), ts: Date.now() };
+        const msg: ChatRoomMessage = {
+          id: nid('rmsg'),
+          roomId,
+          authorId,
+          authorKind,
+          authorName,
+          text: text.trim(),
+          ts: Date.now(),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        };
         set({ chatRoomMessages: { ...s.chatRoomMessages, [roomId]: [...(s.chatRoomMessages[roomId] ?? []), msg] } });
         return { ok: true };
       },
@@ -2065,10 +2124,34 @@ export const useWorld = create<Store>()(
         return { ok: true };
       },
 
-      sendStaffMessage: (staffId, text) => {
+      updateOwnWorkMode: (mode) => {
+        const s = get();
+        if (s.session?.role !== 'human_staff' || !s.session.humanStaffId) {
+          return { ok: false, error: '사원 계정만 바꿀 수 있습니다.' };
+        }
+        const rec = s.humanStaff[s.session.humanStaffId];
+        if (!rec) return { ok: false, error: '기록을 찾을 수 없습니다.' };
+        if (rec.status !== 'approved') return { ok: false, error: '승인된 사원만 바꿀 수 있습니다.' };
+        if (rec.workMode === 'leave') {
+          return { ok: false, error: '휴가 중에는 대표가 근태를 되돌려 주어야 합니다.' };
+        }
+        set({
+          humanStaff: { ...s.humanStaff, [rec.id]: { ...rec, workMode: mode } },
+          audit: audit(s.audit, rec.name, '근태 변경(본인)', rec.name, mode),
+        });
+        return { ok: true };
+      },
+
+      sendStaffMessage: (staffId, text, attachments) => {
         const s = get();
         const body = text.trim();
-        if (!body) return { ok: false, error: '내용을 입력하세요.' };
+        if (!body && (!attachments || attachments.length === 0)) {
+          return { ok: false, error: '내용이나 파일을 넣어 주세요.' };
+        }
+        if (attachments && attachments.length > 0) {
+          const check = checkAttachments(get().attachmentBytesUsed(), attachments);
+          if (!check.ok) return check;
+        }
 
         const rec = s.humanStaff[staffId];
         if (!rec) return { ok: false, error: '사원을 찾을 수 없습니다.' };
@@ -2088,9 +2171,69 @@ export const useWorld = create<Store>()(
           authorName: s.session?.accountName ?? (isCeo ? '대표' : rec.name),
           text: body,
           ts: Date.now(),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         };
         set({
           staffChats: { ...s.staffChats, [staffId]: [...(s.staffChats[staffId] ?? []), msg] },
+        });
+        return { ok: true };
+      },
+
+      attachmentBytesUsed: () => {
+        const s = get();
+        const all: Attachment[] = [];
+        for (const list of Object.values(s.chatRoomMessages)) {
+          for (const m of list) if (m.attachments) all.push(...m.attachments);
+        }
+        for (const list of Object.values(s.staffChats)) {
+          for (const m of list) if (m.attachments) all.push(...m.attachments);
+        }
+        return usedBytes(all);
+      },
+
+      /* ── 일정 · 타임라인 ───────────────────────────────────────────── */
+
+      addScheduleEvent: (input) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표만 일정을 추가할 수 있습니다.' };
+        if (!s.company) return { ok: false, error: '회사가 없습니다.' };
+
+        const check = validateEvent(input);
+        if (!check.ok) return check;
+
+        // 없는 지사에 일정을 붙이면 화면 어디에도 안 보이는 유령이 된다.
+        if (input.branchId !== null && !s.branches[input.branchId]) {
+          return { ok: false, error: '그런 지사가 없습니다.' };
+        }
+
+        const event: ScheduleEvent = {
+          id: nid('sch'),
+          title: input.title.trim(),
+          kind: input.kind,
+          branchId: input.branchId,
+          startDay: input.startDay,
+          endDay: input.endDay,
+          note: (input.note ?? '').trim(),
+          ownerName: s.session.accountName,
+          createdBy: s.session.accountName,
+          createdAt: Date.now(),
+        };
+        const where = input.branchId === null ? '전사 공용' : (s.branches[input.branchId]?.name ?? input.branchId);
+        set({
+          schedule: [...s.schedule, event],
+          audit: audit(s.audit, s.session.accountName, '일정 추가', event.title, `${where} · ${input.startDay}~${input.endDay}`),
+        });
+        return { ok: true };
+      },
+
+      removeScheduleEvent: (id) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표만 일정을 지울 수 있습니다.' };
+        const found = s.schedule.find((e) => e.id === id);
+        if (!found) return { ok: false, error: '그런 일정이 없습니다.' };
+        set({
+          schedule: s.schedule.filter((e) => e.id !== id),
+          audit: audit(s.audit, s.session.accountName, '일정 삭제', found.title, ''),
         });
         return { ok: true };
       },
@@ -2234,6 +2377,7 @@ export const useWorld = create<Store>()(
         chatRoomOrder: s.chatRoomOrder,
         chatRoomMessages: s.chatRoomMessages,
         chatRoomInvites: s.chatRoomInvites,
+        schedule: s.schedule,
         tutorial: s.tutorial,
       }),
     },

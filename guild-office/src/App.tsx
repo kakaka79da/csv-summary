@@ -18,6 +18,7 @@ import MissionBoard from '@/components/missions/MissionBoard';
 import RelationshipGraph from '@/components/graph/RelationshipGraph';
 import ChatRoomsPanel from '@/components/chat/ChatRoomsPanel';
 import StatusDashboard from '@/components/status/StatusDashboard';
+import SchedulePanel, { ScheduleEmptyBranchNote } from '@/components/schedule/SchedulePanel';
 import ApprovalCenter from '@/components/approvals/ApprovalCenter';
 import CostDashboard from '@/components/cost/CostDashboard';
 import AuditLog from '@/components/audit/AuditLog';
@@ -207,6 +208,7 @@ const PANELS = [
   ['dungeon', '프로젝트 던전', '지금 진행 중인 업무를 전투 연출로 봅니다. 몬스터 체력 = 남은 작업량입니다.'],
   ['rooms', '채팅방', '부서별 단체 채팅방과 전사 공용 채팅방. 초대는 대표가 바로 하거나 사원이 제안한 뒤 대표가 승인합니다.'],
   ['status', '근태 · 현황판', '누가 지금 무엇을 하는지 한눈에. AI 직원은 실제 상태에서, 인간 사원은 본인이 남긴 한 줄에서 가져옵니다.'],
+  ['schedule', '일정 · 타임라인', '프로젝트와 일정을 날짜 막대로 봅니다. 회사 전체 / 지사별로 나눠 보고, 본사는 전사 공용과 본사 내부가 따로 표시됩니다.'],
   ['approvals', '대표 승인 센터', '비용이 들거나 위험한 작업은 여기서 대표가 승인해야 시작됩니다.'],
   ['cost', '비용 · API 사용량', '회사 월간 예산, 직원별 사용량, 월별 집계와 CSV 내보내기.'],
   ['people', '조직 · 지사', '인간 사원 명부(승인·급여·복지·근태)와 지사 목록. 사원 가입 코드도 여기 있습니다.'],
@@ -394,6 +396,12 @@ function OfficeScreen() {
           {openPanel === 'dungeon' ? <MissionBoard mode="dungeon" /> : null}
           {openPanel === 'rooms' ? <ChatRoomsPanel /> : null}
           {openPanel === 'status' ? <StatusDashboard /> : null}
+          {openPanel === 'schedule' ? (
+            <div className="space-y-3">
+              <ScheduleEmptyBranchNote />
+              <SchedulePanel />
+            </div>
+          ) : null}
           {openPanel === 'approvals' ? <ApprovalCenter /> : null}
           {openPanel === 'cost' ? <CostDashboard /> : null}
           {openPanel === 'people' ? <PeoplePanel /> : null}
