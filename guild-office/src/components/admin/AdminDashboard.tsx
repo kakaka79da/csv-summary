@@ -11,7 +11,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useWorld } from '@/state/store';
 import { clock, money } from '@/lib/format';
-import { Badge, Button, Notice, SectionTitle, TextArea, TextInput, Tooltip } from '@/components/ui/primitives';
+import { Badge, Button, Field, Notice, SectionTitle, TextArea, TextInput, Tooltip } from '@/components/ui/primitives';
+import { checkPassword } from '@/lib/password';
 import { PlatformMakerSetting } from '@/components/panels/SidePanels';
 import AuditLog from '@/components/audit/AuditLog';
 import EasterEggCredit from '@/components/auth/EasterEggCredit';
@@ -66,6 +67,7 @@ export default function AdminDashboard() {
       </header>
 
       <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6">
+        <AdminPasswordCard />
         <Notice>
           관리자 페이지는 오피스 운영 화면과 완전히 분리되어 있습니다. 회사 창립 승인, 회사 삭제 승인, 대표
           문의 대응처럼 "절대적으로 확인이 필요한" 항목만 다룹니다.
@@ -350,6 +352,115 @@ function MessagingInbox() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────── 관리자 암호 (부트스트랩 경고 포함) ─────────────────── */
+
+/**
+ * 관리자가 아직 임시(부트스트랩) 암호를 쓰고 있으면 계속 경고한다.
+ * 보안 원칙 문서(`docs/SECURITY.md` §3)의 "최초 로그인 즉시 변경" 항목을 화면으로 지킨다.
+ */
+function AdminPasswordCard() {
+  const usingBootstrap = useWorld((s) => s.adminUsingBootstrap);
+  const verifyAccountPassword = useWorld((s) => s.verifyAccountPassword);
+  const setAccountPassword = useWorld((s) => s.setAccountPassword);
+
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [next2, setNext2] = useState('');
+  const [msg, setMsg] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const bootstrap = usingBootstrap();
+
+  const submit = async () => {
+    setMsg(null);
+    if (next !== next2) {
+      setMsg({ tone: 'warn', text: '새 암호를 두 번 다르게 입력하셨습니다.' });
+      return;
+    }
+    const strong = checkPassword(next);
+    if (!strong.ok) {
+      setMsg({ tone: 'warn', text: strong.error ?? '암호를 다시 정해 주세요.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      const v = await verifyAccountPassword('admin', current);
+      if (!v.ok) {
+        setMsg({ tone: 'warn', text: v.error ?? '지금 암호가 맞지 않습니다.' });
+        return;
+      }
+      const r = await setAccountPassword('admin', next);
+      if (!r.ok) {
+        setMsg({ tone: 'warn', text: r.error ?? '바꾸지 못했습니다.' });
+        return;
+      }
+      setCurrent('');
+      setNext('');
+      setNext2('');
+      setOpen(false);
+      setMsg({ tone: 'info', text: '관리자 암호를 바꿨습니다. 임시 암호는 더 이상 쓸 수 없습니다.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className={`rounded-xl border p-4 ${
+        bootstrap ? 'border-ember/50 bg-ember/5' : 'border-stone-700 bg-stone-900/60'
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionTitle className="mb-0">관리자 암호</SectionTitle>
+        <Button size="sm" variant={bootstrap ? 'primary' : 'ghost'} onClick={() => setOpen((v) => !v)}>
+          {open ? '닫기' : '암호 바꾸기'}
+        </Button>
+      </div>
+
+      {bootstrap ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-ember-soft">
+          <strong>아직 임시(부트스트랩) 암호를 쓰고 있습니다.</strong> 이 암호는 개발·시연 기간용이며
+          해시가 소스에 들어 있어 짧은 암호는 대입으로 풀립니다. 실제 사업자 데이터를 받기 전에 반드시
+          바꾸고, 서버가 생기면 환경변수(<code className="text-stone-300">BOOTSTRAP_ADMIN_PASSWORD</code>)에서만
+          읽도록 옮기세요.
+        </p>
+      ) : (
+        <p className="mt-2 text-[11px] text-stone-400">
+          직접 정한 암호를 쓰고 있습니다. 임시 암호는 더 이상 통하지 않습니다.
+        </p>
+      )}
+
+      {msg ? (
+        <div className="mt-2">
+          <Notice tone={msg.tone}>{msg.text}</Notice>
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="mt-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Field label="지금 암호">
+              <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+            </Field>
+            <Field label="새 암호">
+              <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} />
+            </Field>
+            <Field label="새 암호 확인">
+              <TextInput type="password" value={next2} onChange={(e) => setNext2(e.target.value)} />
+            </Field>
+          </div>
+          <div className="mt-2">
+            <Button size="sm" disabled={busy || !current || !next} onClick={() => void submit()}>
+              {busy ? '바꾸는 중…' : '바꾸기'}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

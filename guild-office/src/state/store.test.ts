@@ -454,12 +454,25 @@ describe('우선순위 회의 소집', () => {
 });
 
 describe('숨겨진 관리자 로그인 코드', () => {
-  it('mkang428428## 코드는 세션이 없을 때 플랫폼 관리자로 로그인시킨다', () => {
+  it('mkang428428## 코드는 암호 관문만 열 뿐, 그것만으로는 들어가지 못한다', () => {
     expect(useWorld.getState().session).toBeNull();
     const ok = useWorld.getState().tryEasterEggCode('mkang428428##');
     expect(ok).toBe(true);
-    expect(useWorld.getState().session?.role).toBe('platform_admin');
+    // 코드는 소스에 들어 있으므로 그것만으로는 잠금 장치가 될 수 없다.
+    expect(useWorld.getState().session).toBeNull();
+    expect(useWorld.getState().ui.adminGateOpen).toBe(true);
     expect(useWorld.getState().easterEgg.active).toBe(false);
+  });
+
+  it('관리자 암호를 통과해야 실제로 들어간다', async () => {
+    useWorld.getState().tryEasterEggCode('mkang428428##');
+    const bad = await useWorld.getState().loginAsAdmin('틀린암호입니다');
+    expect(bad.ok).toBe(false);
+    expect(useWorld.getState().session).toBeNull();
+
+    const good = await useWorld.getState().loginAsAdmin('mkang428');
+    expect(good.ok).toBe(true);
+    expect(useWorld.getState().session?.role).toBe('platform_admin');
   });
 
   it('이스터에그 코드(mkang428428)는 관리자 코드와 구분되어 여전히 이스터에그만 시작한다', () => {
@@ -1066,6 +1079,211 @@ describe('대표 ↔ 인간 사원 1:1 대화', () => {
 
     useWorld.getState().selectEmployee(aiId);
     expect(useWorld.getState().ui.selectedStaffId).toBe(null);
+  });
+});
+
+describe('개인 암호 · 로그인', () => {
+  it('사원은 자기 암호로만 들어온다 — 이메일만으로는 못 들어온다', async () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    const key = useWorld.getState().staffAccountKey(id);
+    await useWorld.getState().setAccountPassword(key, '철수암호12345');
+    useWorld.getState().logout();
+
+    const wrong = await useWorld.getState().loginAsStaff('chulsoo@example.com', '아무거나12345');
+    expect(wrong.ok).toBe(false);
+    expect(useWorld.getState().session).toBeNull();
+
+    const right = await useWorld.getState().loginAsStaff('chulsoo@example.com', '철수암호12345');
+    expect(right.ok).toBe(true);
+    expect(useWorld.getState().session?.humanStaffId).toBe(id);
+  });
+
+  it('없는 이메일과 틀린 암호를 같은 문구로 답한다 — 누가 있는지 알려주지 않는다', async () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    await useWorld.getState().setAccountPassword(useWorld.getState().staffAccountKey(id), '철수암호12345');
+    useWorld.getState().logout();
+
+    const noSuch = await useWorld.getState().loginAsStaff('없는사람@example.com', '아무거나12345');
+    const wrongPw = await useWorld.getState().loginAsStaff('chulsoo@example.com', '틀린암호12345');
+    expect(noSuch.error).toBe(wrongPw.error);
+  });
+
+  it('암호 원문은 상태 어디에도 저장되지 않는다', async () => {
+    bootstrap();
+    const secret = '아주비밀스러운암호';
+    await useWorld.getState().setAccountPassword('ceo', secret);
+    const dump = JSON.stringify(useWorld.getState().credentials);
+    expect(dump).not.toContain(secret);
+    expect(dump).toContain('salt');
+  });
+
+  it('연달아 5번 틀리면 잠기고, 맞는 암호도 잠금 중에는 막힌다', async () => {
+    bootstrap();
+    await useWorld.getState().setAccountPassword('ceo', '대표암호12345');
+    for (let i = 0; i < 5; i++) {
+      await useWorld.getState().verifyAccountPassword('ceo', '틀린암호12345');
+    }
+    const locked = await useWorld.getState().verifyAccountPassword('ceo', '대표암호12345');
+    expect(locked.ok).toBe(false);
+    expect(locked.error).toContain('초 뒤에');
+  });
+
+  it('관리자는 부트스트랩 암호로 열리고, 자기 암호를 정하면 그쪽이 이긴다', async () => {
+    useWorld.getState().resetAll();
+    expect(useWorld.getState().adminUsingBootstrap()).toBe(true);
+    expect((await useWorld.getState().loginAsAdmin('mkang428')).ok).toBe(true);
+
+    await useWorld.getState().setAccountPassword('admin', '새관리자암호123');
+    expect(useWorld.getState().adminUsingBootstrap()).toBe(false);
+    useWorld.getState().logout();
+    expect((await useWorld.getState().loginAsAdmin('mkang428')).ok).toBe(false);
+    expect((await useWorld.getState().loginAsAdmin('새관리자암호123')).ok).toBe(true);
+  });
+});
+
+describe('회사 코드 재발급', () => {
+  it('대표가 재발급하면 코드가 바뀌고 이전 코드로는 가입할 수 없다', () => {
+    bootstrap();
+    const before = useWorld.getState().company!.code;
+    const r = useWorld.getState().regenerateCompanyCode();
+    expect(r.ok).toBe(true);
+    const after = useWorld.getState().company!.code;
+    expect(after).not.toBe(before);
+
+    useWorld.getState().logout();
+    const bad = useWorld.getState().applyAsHumanStaff({
+      name: '늦은사람', email: 'late@example.com', phone: '', companyCode: before, role: '', appearanceId: 'scribe',
+    });
+    expect(bad.ok).toBe(false);
+  });
+
+  it('대표가 아니면 재발급할 수 없다', () => {
+    bootstrap();
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    expect(useWorld.getState().regenerateCompanyCode().ok).toBe(false);
+  });
+});
+
+describe('휴가 신청 · 승인', () => {
+  function asStaff() {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    return id;
+  }
+
+  it('사원이 신청하면 대표 승인 목록에 올라간다', () => {
+    asStaff();
+    const r = useWorld.getState().requestLeaveDays({ startDay: '2026-09-10', endDay: '2026-09-12', reason: '연차' });
+    expect(r.ok).toBe(true);
+    const apv = useWorld.getState().approvals.find((a) => a.kind === 'leave_request');
+    expect(apv?.status).toBe('pending');
+  });
+
+  it('승인되면 근태가 휴가로 바뀐다 — 승인과 화면이 어긋나지 않는다', () => {
+    const id = asStaff();
+    useWorld.getState().requestLeaveDays({ startDay: '2026-09-10', endDay: '2026-09-12', reason: '연차' });
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    const apv = useWorld.getState().approvals.find((a) => a.kind === 'leave_request')!;
+    useWorld.getState().decideApproval(apv.id, 'approved');
+    expect(useWorld.getState().humanStaff[id].workMode).toBe('leave');
+  });
+
+  it('거절하면 근태가 그대로다', () => {
+    const id = asStaff();
+    useWorld.getState().requestLeaveDays({ startDay: '2026-09-10', endDay: '2026-09-12', reason: '연차' });
+    const before = useWorld.getState().humanStaff[id].workMode;
+    useWorld.getState().logout();
+    useWorld.getState().loginDemo('ceo');
+    const apv = useWorld.getState().approvals.find((a) => a.kind === 'leave_request')!;
+    useWorld.getState().decideApproval(apv.id, 'rejected');
+    expect(useWorld.getState().humanStaff[id].workMode).toBe(before);
+  });
+
+  it('처리 대기 중인 신청이 있으면 또 낼 수 없다', () => {
+    asStaff();
+    useWorld.getState().requestLeaveDays({ startDay: '2026-09-10', endDay: '2026-09-12', reason: '연차' });
+    const again = useWorld.getState().requestLeaveDays({ startDay: '2026-09-20', endDay: '2026-09-21', reason: '또' });
+    expect(again.ok).toBe(false);
+  });
+
+  it('끝이 시작보다 앞서면 거절한다', () => {
+    asStaff();
+    const r = useWorld.getState().requestLeaveDays({ startDay: '2026-09-20', endDay: '2026-09-10', reason: '거꾸로' });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('내 정보 · 안 읽음 · 백업', () => {
+  it('사원이 자기 이름을 바꾸면 화면 표기도 함께 바뀐다', () => {
+    bootstrap();
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    const r = useWorld.getState().updateOwnProfile({ name: '김철수2', phone: '010-0000-0000' });
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().session?.accountName).toBe('김철수2');
+  });
+
+  it('이름을 빈 값으로 만들 수 없다', () => {
+    bootstrap();
+    approveHumanStaff('김철수', 'chulsoo@example.com');
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    expect(useWorld.getState().updateOwnProfile({ name: '   ' }).ok).toBe(false);
+  });
+
+  it('안 읽음은 남이 보낸 것만 센다', () => {
+    bootstrap();
+    const id = approveHumanStaff('김철수', 'chulsoo@example.com');
+    // 대표가 방에 하나 쓴다 — 대표 자신에게는 안 읽음이 아니다
+    useWorld.getState().sendRoomMessage('room_all', '대표 공지');
+    expect(useWorld.getState().unreadCount('room_all')).toBe(0);
+
+    useWorld.getState().logout();
+    useWorld.getState().continueHumanStaffSession('chulsoo@example.com');
+    expect(useWorld.getState().unreadCount('room_all')).toBe(1);
+
+    useWorld.getState().markRead('room_all');
+    expect(useWorld.getState().unreadCount('room_all')).toBe(0);
+    expect(id).toBeTruthy();
+  });
+
+  it('백업을 내보내고 되돌리면 회사가 살아난다', () => {
+    bootstrap();
+    const name = useWorld.getState().company!.name;
+    const json = useWorld.getState().exportBackup();
+    useWorld.getState().resetAll();
+    expect(useWorld.getState().company).toBeNull();
+
+    const r = useWorld.getState().importBackup(json);
+    expect(r.ok).toBe(true);
+    expect(useWorld.getState().company?.name).toBe(name);
+  });
+
+  it('남의 파일은 되돌리지 않는다', () => {
+    bootstrap();
+    expect(useWorld.getState().importBackup('{"hello":1}').ok).toBe(false);
+    expect(useWorld.getState().importBackup('이건 JSON 이 아니다').ok).toBe(false);
+  });
+});
+
+describe('미션 마감일', () => {
+  it('대표만 정할 수 있고, 형식이 어긋나면 거절한다', () => {
+    bootstrap();
+    const missionId = useWorld.getState().missionOrder[0];
+    if (!missionId) return;
+    expect(useWorld.getState().setMissionDue(missionId, '2026-09-30').ok).toBe(true);
+    expect(useWorld.getState().missions[missionId].dueDay).toBe('2026-09-30');
+    expect(useWorld.getState().setMissionDue(missionId, '2026/09/30').ok).toBe(false);
+    expect(useWorld.getState().setMissionDue(missionId, null).ok).toBe(true);
+    expect(useWorld.getState().missions[missionId].dueDay).toBe(null);
   });
 });
 

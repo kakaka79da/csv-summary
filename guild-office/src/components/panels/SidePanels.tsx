@@ -2,13 +2,21 @@
  * 조직 관리(인간 직원 초대 / AI 직원 추가 요청 / 지사·서버 선택)와 설정·보안 화면.
  * 2단계 이후 기능은 UI만 준비하고, 실제 동작은 백엔드 도입 시 연결한다.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useWorld } from '@/state/store';
 import { clock, money } from '@/lib/format';
 import { downloadCsv } from '@/lib/csv';
-import { DOMESTIC_BRANCH_PRESETS, EMPLOYEE_APPEARANCES, OVERSEAS_BRANCH_PRESETS, PLATFORM_MAKER } from '@/data/seed';
-import { Badge, Button, Field, MailLink, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
-import type { BranchStatus, Company, HumanStaffRecord, WorkMode } from '@/types';
+import {
+  DOMESTIC_BRANCH_PRESETS,
+  EMPLOYEE_APPEARANCES,
+  EMPLOYEE_APPEARANCE_IDS,
+  OVERSEAS_BRANCH_PRESETS,
+  PLATFORM_MAKER,
+} from '@/data/seed';
+import { Badge, Button, CopyButton, Field, MailLink, Notice, SectionTitle, Select, TextArea, TextInput } from '@/components/ui/primitives';
+import { MIN_PASSWORD_LENGTH, checkPassword } from '@/lib/password';
+import { DISPLAY_FX } from '@/lib/format';
+import type { BranchStatus, Company, EmployeeAppearanceId, HumanStaffRecord, WorkMode } from '@/types';
 
 const BRANCH_STATUS_LABEL: Record<BranchStatus, string> = {
   operating: '운영 중',
@@ -434,7 +442,12 @@ function RosterRow({
   update: (id: string, patch: Partial<Pick<HumanStaffRecord, 'role' | 'monthlySalaryUsd' | 'benefits' | 'workMode'>>) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [salary, setSalary] = useState(record.monthlySalaryUsd?.toString() ?? '');
+  const company = useWorld((s) => s.company);
+  const currency = company?.currency ?? 'USD';
+  const fx = DISPLAY_FX[currency];
+  const [salary, setSalary] = useState(
+    record.monthlySalaryUsd === null ? '' : String(Math.round(record.monthlySalaryUsd * fx.rate)),
+  );
   const [benefits, setBenefits] = useState(record.benefits.join(', '));
 
   return (
@@ -490,7 +503,14 @@ function RosterRow({
 
       {editing ? (
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <Field label="월급 (USD)">
+          <Field
+            label={`월급 (${currency})`}
+            hint={
+              currency === 'USD'
+                ? '달러로 입력합니다.'
+                : `회사 통화로 입력하면 USD 로 환산해 저장합니다 (표시용 환율 1 USD = ${fx.rate.toLocaleString('ko-KR')} ${currency}).`
+            }
+          >
             <TextInput type="number" min={0} value={salary} onChange={(e) => setSalary(e.target.value)} />
           </Field>
           <Field label="복지 (쉼표로 구분)">
@@ -501,7 +521,11 @@ function RosterRow({
               size="sm"
               onClick={() => {
                 update(record.id, {
-                  monthlySalaryUsd: salary.trim() ? Math.max(0, Number(salary) || 0) : null,
+                  // 입력은 회사 통화로 받고 저장은 언제나 USD 로 한다 —
+                  // 통화가 섞이면 급여 합계가 조용히 틀린다.
+                  monthlySalaryUsd: salary.trim()
+                    ? Math.max(0, Math.round(((Number(salary) || 0) / fx.rate) * 100) / 100)
+                    : null,
                   benefits: benefits
                     .split(',')
                     .map((b) => b.trim())
@@ -538,6 +562,11 @@ export function SettingsPanel() {
         <Row k="월간 AI 예산" v={money(company.monthlyBudgetUsd, company.currency)} />
       </div>
 
+      <PasswordSetting />
+      {session?.role === 'human_staff' ? <MyProfileSetting /> : null}
+      {session?.role === 'human_staff' ? <LeaveRequestSetting /> : null}
+      {session?.role === 'ceo' ? <CompanyCodeSetting company={company} /> : null}
+      {session?.role === 'ceo' ? <BackupSetting /> : null}
       {session?.role === 'ceo' ? <DriveConnectionSetting company={company} /> : null}
       {session?.role === 'ceo' ? <AdminMessageThread company={company} /> : null}
       {session?.role === 'ceo' ? <CompanyDeletionRequest /> : null}
@@ -826,6 +855,373 @@ function Row({ k, v }: { k: string; v: string }) {
     <div className="flex justify-between gap-3 border-b border-stone-800 py-1 last:border-0">
       <span className="shrink-0 text-stone-500">{k}</span>
       <span className="truncate text-right text-stone-200">{v}</span>
+    </div>
+  );
+}
+
+/* ─────────────────────────── 암호 바꾸기 ─────────────────────────── */
+
+function PasswordSetting() {
+  const currentAccountKey = useWorld((s) => s.currentAccountKey);
+  const hasPassword = useWorld((s) => s.hasPassword);
+  const verifyAccountPassword = useWorld((s) => s.verifyAccountPassword);
+  const setAccountPassword = useWorld((s) => s.setAccountPassword);
+
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [next2, setNext2] = useState('');
+  const [msg, setMsg] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const key = currentAccountKey();
+  if (!key) return null;
+  const exists = hasPassword(key);
+
+  const submit = async () => {
+    setMsg(null);
+    if (next !== next2) {
+      setMsg({ tone: 'warn', text: '새 암호를 두 번 다르게 입력하셨습니다.' });
+      return;
+    }
+    const strong = checkPassword(next);
+    if (!strong.ok) {
+      setMsg({ tone: 'warn', text: strong.error ?? '암호를 다시 정해 주세요.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      // 이미 암호가 있으면 지금 암호를 먼저 확인한다 — 자리를 비운 사이
+      // 남이 바꿔 버리는 일을 막는다.
+      if (exists) {
+        const v = await verifyAccountPassword(key, current);
+        if (!v.ok) {
+          setMsg({ tone: 'warn', text: v.error ?? '지금 암호가 맞지 않습니다.' });
+          return;
+        }
+      }
+      const r = await setAccountPassword(key, next);
+      if (!r.ok) {
+        setMsg({ tone: 'warn', text: r.error ?? '바꾸지 못했습니다.' });
+        return;
+      }
+      setCurrent('');
+      setNext('');
+      setNext2('');
+      setMsg({ tone: 'info', text: '암호를 바꿨습니다.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>{exists ? '내 암호 바꾸기' : '내 암호 만들기'}</SectionTitle>
+      <p className="mb-3 text-[11px] text-stone-400">
+        {MIN_PASSWORD_LENGTH}자 이상. 암호는 해시로만 저장되고 원문은 어디에도 남지 않습니다.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {exists ? (
+          <Field label="지금 암호">
+            <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+          </Field>
+        ) : null}
+        <Field label="새 암호">
+          <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} />
+        </Field>
+        <Field label="새 암호 확인">
+          <TextInput type="password" value={next2} onChange={(e) => setNext2(e.target.value)} />
+        </Field>
+      </div>
+      {msg ? (
+        <div className="mt-2">
+          <Notice tone={msg.tone}>{msg.text}</Notice>
+        </div>
+      ) : null}
+      <div className="mt-3">
+        <Button size="sm" disabled={busy || !next || !next2} onClick={() => void submit()}>
+          {busy ? '바꾸는 중…' : exists ? '암호 바꾸기' : '암호 만들기'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── 내 정보 ─────────────────────────── */
+
+function MyProfileSetting() {
+  const session = useWorld((s) => s.session);
+  const humanStaff = useWorld((s) => s.humanStaff);
+  const updateOwnProfile = useWorld((s) => s.updateOwnProfile);
+  const rec = session?.humanStaffId ? humanStaff[session.humanStaffId] : null;
+
+  const [name, setName] = useState(rec?.name ?? '');
+  const [phone, setPhone] = useState(rec?.phone ?? '');
+  const [appearanceId, setAppearanceId] = useState<EmployeeAppearanceId>(rec?.appearanceId ?? 'scribe');
+  const [msg, setMsg] = useState<string | null>(null);
+
+  if (!rec) return null;
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>내 정보</SectionTitle>
+      <p className="mb-3 text-[11px] text-stone-400">
+        이름 · 연락처 · 캐릭터는 본인이 고칩니다. 직책 · 급여 · 소속 지사는 대표가 정합니다.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field label="이름">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="연락처">
+          <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="선택 입력" />
+        </Field>
+      </div>
+      <div className="mt-2">
+        <div className="text-[11px] text-stone-400">캐릭터</div>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {EMPLOYEE_APPEARANCE_IDS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setAppearanceId(id)}
+              className={`rounded-md border px-2 py-1 text-[11px] ${
+                appearanceId === id ? 'border-gold text-gold' : 'border-stone-700 text-stone-400 hover:border-stone-500'
+              }`}
+            >
+              {EMPLOYEE_APPEARANCES[id].label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {msg ? (
+        <div className="mt-2">
+          <Notice>{msg}</Notice>
+        </div>
+      ) : null}
+      <div className="mt-3">
+        <Button
+          size="sm"
+          onClick={() => {
+            const r = updateOwnProfile({ name, phone, appearanceId });
+            setMsg(r.ok ? '저장했습니다.' : (r.error ?? '저장하지 못했습니다.'));
+          }}
+        >
+          저장
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── 휴가 신청 ─────────────────────────── */
+
+function LeaveRequestSetting() {
+  const requestLeaveDays = useWorld((s) => s.requestLeaveDays);
+  const approvals = useWorld((s) => s.approvals);
+  const session = useWorld((s) => s.session);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDay, setStartDay] = useState(today);
+  const [endDay, setEndDay] = useState(today);
+  const [reason, setReason] = useState('');
+  const [msg, setMsg] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
+
+  const mine = approvals.filter((a) => a.kind === 'leave_request' && a.requesterId === session?.humanStaffId);
+  const pending = mine.find((a) => a.status === 'pending');
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>휴가 · 연차 신청</SectionTitle>
+      <p className="mb-3 text-[11px] text-stone-400">
+        대표가 승인해야 근태가 바뀝니다. 신청과 결재 기록은 승인 센터와 감사 로그에 남습니다.
+      </p>
+
+      {pending ? (
+        <Notice>
+          처리 대기 중인 신청이 있습니다 — {pending.title}. 대표가 결정할 때까지 새로 낼 수 없습니다.
+        </Notice>
+      ) : (
+        <>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Field label="시작일">
+              <input
+                type="date"
+                value={startDay}
+                onChange={(e) => setStartDay(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-stone-600 bg-stone-900 px-2 py-1.5 text-xs text-stone-100"
+              />
+            </Field>
+            <Field label="종료일">
+              <input
+                type="date"
+                value={endDay}
+                onChange={(e) => setEndDay(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-stone-600 bg-stone-900 px-2 py-1.5 text-xs text-stone-100"
+              />
+            </Field>
+            <Field label="사유">
+              <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 개인 연차" />
+            </Field>
+          </div>
+          {msg ? (
+            <div className="mt-2">
+              <Notice tone={msg.tone}>{msg.text}</Notice>
+            </div>
+          ) : null}
+          <div className="mt-3">
+            <Button
+              size="sm"
+              onClick={() => {
+                const r = requestLeaveDays({ startDay, endDay, reason });
+                setMsg(
+                  r.ok
+                    ? { tone: 'info', text: '신청했습니다. 대표 승인 센터로 넘어갔습니다.' }
+                    : { tone: 'warn', text: r.error ?? '신청하지 못했습니다.' },
+                );
+              }}
+            >
+              휴가 신청
+            </Button>
+          </div>
+        </>
+      )}
+
+      {mine.filter((a) => a.status !== 'pending').length > 0 ? (
+        <div className="mt-3 space-y-1 text-[11px]">
+          <div className="text-stone-500">지난 신청</div>
+          {mine
+            .filter((a) => a.status !== 'pending')
+            .slice(0, 5)
+            .map((a) => (
+              <div key={a.id} className="flex justify-between gap-2 border-b border-stone-800 py-1">
+                <span className="text-stone-300">{a.title}</span>
+                <Badge tone={a.status === 'approved' ? 'vital' : 'ember'}>
+                  {a.status === 'approved' ? '승인' : '거절'}
+                </Badge>
+              </div>
+            ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ─────────────────────────── 회사 코드 재발급 ─────────────────────────── */
+
+function CompanyCodeSetting({ company }: { company: Company }) {
+  const regenerate = useWorld((s) => s.regenerateCompanyCode);
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>사원 가입 코드</SectionTitle>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-md border border-gold/40 bg-gold/10 px-2 py-1 font-mono text-sm text-gold">
+          {company.code}
+        </span>
+        <CopyButton value={company.code} label="코드 복사" />
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-stone-400">
+        이 코드를 아는 사람은 누구나 가입 신청을 할 수 있습니다. 퇴사자가 알고 있거나 밖으로 샜다면
+        새로 발급하세요. <strong className="text-stone-300">이전 코드는 즉시 쓸 수 없게 됩니다.</strong>
+      </p>
+      {confirming ? (
+        <div className="mt-3 rounded-lg border border-ember/40 bg-ember/5 p-3">
+          <p className="text-[11px] text-stone-200">
+            정말 새로 발급할까요? 이전 코드를 받은 사람은 더 이상 가입 신청을 할 수 없습니다.
+            (이미 승인된 사원은 영향을 받지 않습니다.)
+          </p>
+          <div className="mt-2 flex gap-1.5">
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => {
+                regenerate();
+                setConfirming(false);
+              }}
+            >
+              새로 발급
+            </Button>
+            <Button size="sm" variant="quiet" onClick={() => setConfirming(false)}>
+              취소
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}>
+            코드 새로 발급
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── 백업 ─────────────────────────── */
+
+function BackupSetting() {
+  const exportBackup = useWorld((s) => s.exportBackup);
+  const importBackup = useWorld((s) => s.importBackup);
+  const company = useWorld((s) => s.company);
+  const [msg, setMsg] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const save = () => {
+    const json = exportBackup();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `길드오피스-백업-${(company?.name ?? 'company').replace(/\s+/g, '')}-${new Date()
+      .toISOString()
+      .slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setMsg({ tone: 'info', text: '백업 파일을 내려받았습니다. (미리보기 화면에서는 저장이 막힐 수 있습니다)' });
+  };
+
+  const load = async (file: File | undefined) => {
+    if (!file) return;
+    const text = await file.text();
+    const r = importBackup(text);
+    setMsg(
+      r.ok
+        ? { tone: 'info', text: '백업을 되돌렸습니다.' }
+        : { tone: 'warn', text: r.error ?? '되돌리지 못했습니다.' },
+    );
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
+  return (
+    <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-4">
+      <SectionTitle>전체 백업 · 복원</SectionTitle>
+      <p className="mb-3 text-[11px] leading-relaxed text-stone-400">
+        이 앱은 <strong className="text-stone-300">브라우저 안에만</strong> 저장됩니다. 브라우저를
+        청소하면 전부 사라지므로, 중요한 시점마다 파일로 내려받아 두세요. 서버가 생기기 전까지의
+        유일한 안전장치입니다.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="ghost" onClick={save}>
+          백업 내려받기
+        </Button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => void load(e.target.files?.[0])}
+        />
+        <Button size="sm" variant="ghost" onClick={() => inputRef.current?.click()}>
+          백업 되돌리기
+        </Button>
+      </div>
+      {msg ? (
+        <div className="mt-2">
+          <Notice tone={msg.tone}>{msg.text}</Notice>
+        </div>
+      ) : null}
     </div>
   );
 }

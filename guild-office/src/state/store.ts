@@ -27,6 +27,17 @@ import { advanceAlongPath, findPath } from '@/lib/pathfinding';
 import type { WeatherCondition, WeatherReading, WeatherSource } from '@/lib/weather';
 import { checkAttachments, usedBytes } from '@/lib/attachments';
 import { validateEvent } from '@/lib/schedule';
+import {
+  afterFailure,
+  afterSuccess,
+  checkPassword,
+  hashPassword,
+  lockoutLeft,
+  verifyPassword,
+  type AttemptState,
+  type StoredCredential,
+} from '@/lib/password';
+import { ADMIN_ACCOUNT_KEY, ADMIN_BOOTSTRAP_CREDENTIAL } from '@/data/adminCredential';
 import { clamp, nid } from '@/lib/format';
 import { appendRecord, compileSystemPrompt, recordModelSwitch } from '@/lib/memoryCompile';
 import { DRIVE_ROOT_FOLDER_URL, seedMemory, type MemoryAgreement } from '@/data/memorySeed';
@@ -173,6 +184,25 @@ export interface WorldState {
   chatRoomInvites: ChatRoomInvite[];
 
   /**
+   * 계정별 암호 자격증명. **암호 원문은 절대 여기 들어오지 않는다** — 소금과 해시뿐이다.
+   *
+   * 키 형식: 'admin' | 'ceo' | 'staff:<사원id>'
+   * 관리자 키가 비어 있으면 부트스트랩 자격증명(`data/adminCredential.ts`)으로 대조한다.
+   */
+  credentials: Record<string, StoredCredential>;
+
+  /** 계정별 로그인 실패 횟수와 잠금. 새로고침해도 유지되어야 우회할 수 없다. */
+  loginAttempts: Record<string, AttemptState>;
+
+  /**
+   * 누가 어느 대화를 어디까지 읽었는가. `계정키 → 대화키 → 마지막으로 읽은 시각`.
+   * 대화키는 채팅방 id 또는 `staff:<사원id>` 다.
+   *
+   * ⚠️ 이 값은 **이 브라우저에만** 있다. 다른 기기에서 읽은 것은 반영되지 않는다.
+   */
+  lastReadAt: Record<string, Record<string, number>>;
+
+  /**
    * 일정 · 타임라인. 지사별로 나눠 보되, branchId 가 null 인 것은 전사 공용이라
    * 어느 지사를 봐도 함께 보인다. 미션에서 파생된 막대는 여기 저장하지 않고
    * 화면에서 그때그때 만든다 — 저장하면 미션과 어긋날 수 있기 때문이다.
@@ -183,6 +213,11 @@ export interface WorldState {
     selectedEmployeeId: string | null;
     /** 오피스에서 선택한 인간 사원. AI 직원 선택과 동시에 켜지지 않는다. */
     selectedStaffId: string | null;
+    /**
+     * 관리자 숨은 코드를 맞혔을 때 켜지는 암호 관문.
+     * 코드만으로는 들어갈 수 없다 — 코드는 "어느 문인가"이고 암호가 "열쇠"다.
+     */
+    adminGateOpen: boolean;
     openPanel:
       | null
       | 'missions'
@@ -195,7 +230,8 @@ export interface WorldState {
       | 'graph'
       | 'rooms'
       | 'status'
-      | 'schedule';
+      | 'schedule'
+      | 'search';
     /** 면담 대기열 (순서대로 1:1 면담) */
     interviewQueue: string[];
     toast: string | null;
@@ -243,7 +279,88 @@ export interface WorldState {
 }
 
 export interface WorldActions {
+  /**
+   * 역할별 데모 로그인 (암호 없음).
+   *
+   * ⚠️ 이 통로는 **테스트·시뮬레이션 모드 전용**이다. 실제 로그인 화면은 아래의
+   * 암호 대조(verifyAccountPassword)를 통과한 뒤에만 이것을 부른다.
+   */
   loginDemo: (role: Role) => void;
+
+  /* ── 개인 암호 ───────────────────────────────────────────────── */
+
+  /** 이 계정에 암호가 이미 정해져 있는가. 'ceo' | 'admin' | 'staff:<id>' */
+  hasPassword: (accountKey: string) => boolean;
+
+  /** 관리자가 아직 부트스트랩(임시) 암호를 쓰고 있는가. 화면에 경고를 띄우기 위한 값. */
+  adminUsingBootstrap: () => boolean;
+
+  /** 암호를 정하거나 바꾼다. 원문은 저장되지 않고 해시만 남는다. */
+  setAccountPassword: (accountKey: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+
+  /**
+   * 암호를 대조한다. 연달아 틀리면 잠근다.
+   * ⚠️ 브라우저 안에서 대조하므로 진짜 보안이 아니다 — `src/lib/password.ts` 머리말 참고.
+   */
+  verifyAccountPassword: (accountKey: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+
+  /** 대표 로그인 (암호 대조 후 세션 생성). 암호가 아직 없으면 먼저 정하게 한다. */
+  loginAsCeo: (password: string) => Promise<{ ok: boolean; error?: string }>;
+
+  /** 플랫폼 관리자 로그인. 숨은 코드로 문을 연 뒤 이 암호를 통과해야 한다. */
+  loginAsAdmin: (password: string) => Promise<{ ok: boolean; error?: string }>;
+
+  /** 사원 로그인 — 이메일로 찾고 그 사람의 암호로 대조한다. */
+  loginAsStaff: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+
+  /** 사원 계정 키. 자격증명·잠금 상태를 찾을 때 쓴다. */
+  staffAccountKey: (staffId: string) => string;
+
+  /** 지금 로그인한 사람의 계정 키. 안 읽음 표시를 계정별로 나누기 위해 쓴다. */
+  currentAccountKey: () => string | null;
+
+  /* ── 안 읽음 ─────────────────────────────────────────────────── */
+
+  /** 이 대화를 지금까지 읽은 것으로 표시한다. */
+  markRead: (threadKey: string) => void;
+  /** 이 대화에 내가 아직 안 읽은 메시지가 몇 개인가. */
+  unreadCount: (threadKey: string) => number;
+  /** 모든 대화를 통틀어 안 읽은 수 (헤더 배지용). */
+  totalUnread: () => number;
+
+  /* ── 회사 코드 ───────────────────────────────────────────────── */
+
+  /** 회사 가입 코드를 새로 발급한다. 대표만. 이전 코드는 바로 죽는다. */
+  regenerateCompanyCode: () => { ok: boolean; error?: string; code?: string };
+
+  /* ── 내 정보 ─────────────────────────────────────────────────── */
+
+  /** 사원이 자기 이름·연락처·외형을 고친다. 직책·급여·지사는 대표 소관이라 뺐다. */
+  updateOwnProfile: (patch: {
+    name?: string;
+    phone?: string;
+    appearanceId?: EmployeeAppearanceId;
+  }) => { ok: boolean; error?: string };
+
+  /* ── 휴가 신청 ───────────────────────────────────────────────── */
+
+  /** 사원이 휴가·연차를 신청한다. 대표가 승인해야 근태가 바뀐다. */
+  requestLeaveDays: (input: { startDay: string; endDay: string; reason: string }) => {
+    ok: boolean;
+    error?: string;
+  };
+
+  /* ── 미션 마감일 ─────────────────────────────────────────────── */
+
+  /** 미션 마감일을 정하거나 지운다(null). 대표만. */
+  setMissionDue: (missionId: string, dueDay: string | null) => { ok: boolean; error?: string };
+
+  /* ── 백업 ────────────────────────────────────────────────────── */
+
+  /** 지금 상태를 JSON 문자열로 내보낸다. 브라우저를 청소해도 되돌릴 수 있게. */
+  exportBackup: () => string;
+  /** 내보낸 JSON 을 되돌린다. 형식이 다르면 아무것도 바꾸지 않는다. */
+  importBackup: (json: string) => { ok: boolean; error?: string };
   logout: () => void;
 
   /** 플랫폼 제작자 표기를 바꾼다. 플랫폼 관리자만 호출할 수 있다. */
@@ -274,9 +391,9 @@ export interface WorldActions {
     companyCode: string;
     role: string;
     appearanceId: EmployeeAppearanceId;
-  }) => { ok: boolean; error?: string };
+  }) => { ok: boolean; error?: string; staffId?: string };
 
-  /** 이미 신청한 이메일로 다시 로그인한다 (대기/승인/거절 상태 그대로 이어서 본다). */
+  /** 이미 신청한 이메일로 다시 로그인한다 (암호 없이 — 테스트·시뮬레이션 전용) (대기/승인/거절 상태 그대로 이어서 본다). */
   continueHumanStaffSession: (email: string) => { ok: boolean; error?: string };
 
   /** 대표가 가입 신청을 승인하거나 거절한다. */
@@ -490,6 +607,8 @@ export interface WorldActions {
   selectStaff: (id: string | null) => void;
   openPanel: (p: WorldState['ui']['openPanel']) => void;
   setToast: (t: string | null) => void;
+  /** 관리자 암호 관문을 연다/닫는다. */
+  setAdminGate: (open: boolean) => void;
 
   /**
    * 전체(전사 공용) 채팅방이 없으면 만들어 목록 맨 앞에 둔다.
@@ -540,8 +659,11 @@ const initialState: WorldState = {
   chatRoomOrder: [],
   chatRoomMessages: {},
   chatRoomInvites: [],
+  credentials: {},
+  loginAttempts: {},
+  lastReadAt: {},
   schedule: [],
-  ui: { selectedEmployeeId: null, selectedStaffId: null, openPanel: null, interviewQueue: [], toast: null },
+  ui: { selectedEmployeeId: null, selectedStaffId: null, adminGateOpen: false, openPanel: null, interviewQueue: [], toast: null },
   tutorial: { summoned: false, interviewsDone: false, firstMissionDone: false },
   easterEgg: initialEasterEgg,
   simulationMode: false,
@@ -700,6 +822,303 @@ export const useWorld = create<Store>()(
           // 전체 채팅방은 언제나 있어야 한다 (예전 저장 데이터 보정 포함).
           ...(withCompanyWideRoom(s) ?? {}),
         });
+      },
+
+      hasPassword: (accountKey) => Boolean(get().credentials[accountKey]),
+
+      adminUsingBootstrap: () => !get().credentials[ADMIN_ACCOUNT_KEY],
+
+      setAccountPassword: async (accountKey, password) => {
+        const check = checkPassword(password);
+        if (!check.ok) return check;
+        const cred = await hashPassword(password);
+        const s = get();
+        set({
+          credentials: { ...s.credentials, [accountKey]: cred },
+          // 암호를 바꾸면 잠금도 푼다 — 본인이 바꾼 것이므로 계속 잠가 둘 이유가 없다.
+          loginAttempts: { ...s.loginAttempts, [accountKey]: afterSuccess() },
+          audit: audit(s.audit, s.session?.accountName ?? accountKey, '암호 설정', accountKey, '해시만 저장됨'),
+        });
+        return { ok: true };
+      },
+
+      verifyAccountPassword: async (accountKey, password) => {
+        const s = get();
+        const attempt = s.loginAttempts[accountKey];
+        const left = lockoutLeft(attempt);
+        if (left > 0) {
+          return { ok: false, error: `너무 여러 번 틀렸습니다. ${left}초 뒤에 다시 시도하세요.` };
+        }
+
+        // 관리자는 자기 암호를 정하기 전까지 부트스트랩 자격증명으로 연다.
+        const cred =
+          s.credentials[accountKey] ??
+          (accountKey === ADMIN_ACCOUNT_KEY ? ADMIN_BOOTSTRAP_CREDENTIAL : undefined);
+
+        const ok = await verifyPassword(password, cred);
+        const now = Date.now();
+        if (!ok) {
+          const next = afterFailure(get().loginAttempts[accountKey], now);
+          set({
+            loginAttempts: { ...get().loginAttempts, [accountKey]: next },
+            audit: audit(get().audit, accountKey, '로그인 실패', accountKey, `연속 ${next.failed}회`),
+          });
+          const nowLeft = lockoutLeft(next, now);
+          return {
+            ok: false,
+            error:
+              nowLeft > 0
+                ? `암호가 맞지 않습니다. 너무 여러 번 틀려 ${nowLeft}초 동안 잠깁니다.`
+                : '암호가 맞지 않습니다.',
+          };
+        }
+        set({ loginAttempts: { ...get().loginAttempts, [accountKey]: afterSuccess() } });
+        return { ok: true };
+      },
+
+      staffAccountKey: (staffId) => `staff:${staffId}`,
+
+      loginAsCeo: async (password) => {
+        const s = get();
+        if (!s.credentials['ceo']) {
+          return { ok: false, error: '아직 대표 암호가 없습니다. "암호 만들기"로 먼저 정해 주세요.' };
+        }
+        const v = await get().verifyAccountPassword('ceo', password);
+        if (!v.ok) return v;
+        get().loginDemo('ceo');
+        return { ok: true };
+      },
+
+      loginAsAdmin: async (password) => {
+        const v = await get().verifyAccountPassword(ADMIN_ACCOUNT_KEY, password);
+        if (!v.ok) return v;
+        get().loginDemo('platform_admin');
+        return { ok: true };
+      },
+
+      loginAsStaff: async (email, password) => {
+        const s = get();
+        const trimmed = email.trim().toLowerCase();
+        const record = Object.values(s.humanStaff).find((r) => r.email.toLowerCase() === trimmed);
+        // 없는 계정과 틀린 암호를 같은 문구로 돌려준다 —
+        // 다르게 답하면 어떤 이메일이 이 회사에 있는지 알려 주는 셈이 된다.
+        const generic = '이메일 또는 암호가 맞지 않습니다.';
+        if (!record) return { ok: false, error: generic };
+
+        const key = get().staffAccountKey(record.id);
+        if (!s.credentials[key]) {
+          return {
+            ok: false,
+            error: '이 계정에는 아직 암호가 없습니다. 대표에게 암호 재설정을 요청하세요.',
+          };
+        }
+        const v = await get().verifyAccountPassword(key, password);
+        if (!v.ok) return { ok: false, error: v.error === '암호가 맞지 않습니다.' ? generic : v.error };
+
+        set({
+          session: { role: 'human_staff', accountName: record.name, demo: true, humanStaffId: record.id },
+          phase: 'live',
+          audit: audit(get().audit, record.name, '사원 로그인', get().company?.name ?? '-', record.status),
+        });
+        return { ok: true };
+      },
+
+      currentAccountKey: () => {
+        const s = get();
+        if (!s.session) return null;
+        if (s.session.role === 'ceo') return 'ceo';
+        if (s.session.role === 'platform_admin') return ADMIN_ACCOUNT_KEY;
+        return s.session.humanStaffId ? `staff:${s.session.humanStaffId}` : null;
+      },
+
+      /* ── 안 읽음 ─────────────────────────────────────────────────── */
+
+      markRead: (threadKey) => {
+        const s = get();
+        const key = get().currentAccountKey();
+        if (!key) return;
+        const mine = s.lastReadAt[key] ?? {};
+        set({ lastReadAt: { ...s.lastReadAt, [key]: { ...mine, [threadKey]: Date.now() } } });
+      },
+
+      unreadCount: (threadKey) => {
+        const s = get();
+        const key = get().currentAccountKey();
+        if (!key) return 0;
+        const since = s.lastReadAt[key]?.[threadKey] ?? 0;
+
+        if (threadKey.startsWith('staff:')) {
+          const staffId = threadKey.slice('staff:'.length);
+          const list = s.staffChats[staffId] ?? [];
+          // 내가 보낸 것은 안 읽음이 아니다.
+          const mineIsCeo = s.session?.role === 'ceo';
+          return list.filter((m) => m.ts > since && (mineIsCeo ? m.from === 'staff' : m.from === 'ceo')).length;
+        }
+
+        const list = s.chatRoomMessages[threadKey] ?? [];
+        const myAuthorId = s.session?.role === 'ceo' ? 'ceo' : (s.session?.humanStaffId ?? '');
+        return list.filter((m) => m.ts > since && m.authorId !== myAuthorId).length;
+      },
+
+      totalUnread: () => {
+        const s = get();
+        if (!get().currentAccountKey()) return 0;
+        let n = 0;
+        for (const roomId of s.chatRoomOrder) n += get().unreadCount(roomId);
+        if (s.session?.role === 'ceo') {
+          for (const staffId of Object.keys(s.staffChats)) n += get().unreadCount(`staff:${staffId}`);
+        } else if (s.session?.humanStaffId) {
+          n += get().unreadCount(`staff:${s.session.humanStaffId}`);
+        }
+        return n;
+      },
+
+      /* ── 회사 코드 ───────────────────────────────────────────────── */
+
+      regenerateCompanyCode: () => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표만 재발급할 수 있습니다.' };
+        if (!s.company) return { ok: false, error: '회사가 없습니다.' };
+        const code = generateCompanyCode(s.company.name);
+        set({
+          company: { ...s.company, code },
+          audit: audit(s.audit, s.session.accountName, '회사 코드 재발급', s.company.name, '이전 코드는 더 이상 쓸 수 없습니다'),
+          ui: { ...s.ui, toast: `새 회사 코드: ${code} — 이전 코드로는 가입할 수 없습니다.` },
+        });
+        return { ok: true, code };
+      },
+
+      /* ── 내 정보 ─────────────────────────────────────────────────── */
+
+      updateOwnProfile: (patch) => {
+        const s = get();
+        if (s.session?.role !== 'human_staff' || !s.session.humanStaffId) {
+          return { ok: false, error: '사원 계정만 고칠 수 있습니다.' };
+        }
+        const rec = s.humanStaff[s.session.humanStaffId];
+        if (!rec) return { ok: false, error: '기록을 찾을 수 없습니다.' };
+
+        const name = patch.name?.trim();
+        if (patch.name !== undefined && !name) return { ok: false, error: '이름은 비울 수 없습니다.' };
+
+        const updated: HumanStaffRecord = {
+          ...rec,
+          name: name ?? rec.name,
+          phone: patch.phone !== undefined ? patch.phone.trim() || null : rec.phone,
+          appearanceId: patch.appearanceId ?? rec.appearanceId,
+        };
+        set({
+          humanStaff: { ...s.humanStaff, [rec.id]: updated },
+          // 이름을 바꾸면 화면 곳곳의 "로그인: ○○" 도 함께 바뀌어야 한다.
+          session: { ...s.session, accountName: updated.name },
+          audit: audit(s.audit, updated.name, '내 정보 수정', updated.name, ''),
+        });
+        return { ok: true };
+      },
+
+      /* ── 휴가 신청 ───────────────────────────────────────────────── */
+
+      requestLeaveDays: (input) => {
+        const s = get();
+        if (s.session?.role !== 'human_staff' || !s.session.humanStaffId) {
+          return { ok: false, error: '사원 계정만 신청할 수 있습니다.' };
+        }
+        const rec = s.humanStaff[s.session.humanStaffId];
+        if (!rec || rec.status !== 'approved') return { ok: false, error: '승인된 사원만 신청할 수 있습니다.' };
+
+        const check = validateEvent({ title: input.reason || '휴가', ...input });
+        if (!check.ok) return check;
+
+        const already = s.approvals.some(
+          (a) => a.kind === 'leave_request' && a.status === 'pending' && a.requesterId === rec.id,
+        );
+        if (already) return { ok: false, error: '이미 처리 대기 중인 휴가 신청이 있습니다.' };
+
+        const approval: Approval = {
+          id: nid('apv'),
+          kind: 'leave_request',
+          title: `${rec.name} 휴가 신청 (${input.startDay} ~ ${input.endDay})`,
+          reason: input.reason.trim() || '사유 없음',
+          requesterId: rec.id,
+          participants: [],
+          estCostUsd: 0,
+          estSeconds: 0,
+          risk: 'low',
+          model: null,
+          tools: [],
+          dataScope: [],
+          status: 'pending',
+          note: null,
+          missionId: null,
+          createdAt: Date.now(),
+          decidedAt: null,
+          leaveDays: { startDay: input.startDay, endDay: input.endDay },
+        };
+        set({
+          approvals: [approval, ...s.approvals],
+          audit: audit(s.audit, rec.name, '휴가 신청', rec.name, `${input.startDay} ~ ${input.endDay}`),
+        });
+        return { ok: true };
+      },
+
+      /* ── 미션 마감일 ─────────────────────────────────────────────── */
+
+      setMissionDue: (missionId, dueDay) => {
+        const s = get();
+        if (s.session?.role !== 'ceo') return { ok: false, error: '대표만 마감일을 정할 수 있습니다.' };
+        const m = s.missions[missionId];
+        if (!m) return { ok: false, error: '그런 미션이 없습니다.' };
+        if (dueDay !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dueDay)) {
+          return { ok: false, error: '날짜 형식이 올바르지 않습니다.' };
+        }
+        set({
+          missions: { ...s.missions, [missionId]: { ...m, dueDay } },
+          audit: audit(s.audit, s.session.accountName, dueDay ? '마감일 설정' : '마감일 해제', m.name, dueDay ?? ''),
+        });
+        return { ok: true };
+      },
+
+      /* ── 백업 ────────────────────────────────────────────────────── */
+
+      exportBackup: () => {
+        const s = get();
+        // 화면 임시 상태(ui·날씨·이스터에그)는 담지 않는다 — 되돌릴 값이 아니다.
+        const { ui: _ui, weather: _w, easterEgg: _e, simulationMode: _sm, ...rest } = s as unknown as Record<
+          string,
+          unknown
+        >;
+        const data: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(rest)) {
+          if (typeof v !== 'function') data[k] = v;
+        }
+        return JSON.stringify({ __guildOffice: 1, savedAt: Date.now(), state: data }, null, 2);
+      },
+
+      importBackup: (json) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(json);
+        } catch {
+          return { ok: false, error: 'JSON 형식이 아닙니다.' };
+        }
+        if (
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          (parsed as { __guildOffice?: number }).__guildOffice !== 1 ||
+          typeof (parsed as { state?: unknown }).state !== 'object'
+        ) {
+          return { ok: false, error: '이 앱에서 내보낸 백업 파일이 아닙니다.' };
+        }
+        const incoming = (parsed as { state: Record<string, unknown> }).state;
+        // 있는 열쇠만 골라 덮는다 — 모르는 값이 상태에 섞이지 않도록.
+        const allowed = new Set(Object.keys(initialState));
+        const patch: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(incoming)) if (allowed.has(k)) patch[k] = v;
+        if (Object.keys(patch).length === 0) return { ok: false, error: '되돌릴 내용이 없습니다.' };
+
+        set({ ...(patch as Partial<WorldState>), ui: { ...get().ui, toast: '백업을 되돌렸습니다.' } });
+        get().ensureCompanyWideRoom();
+        return { ok: true };
       },
 
       logout: () => {
@@ -1334,6 +1753,32 @@ export const useWorld = create<Store>()(
 
         const positive = decision === 'approved' || decision === 'conditional';
 
+        // 휴가 신청 — 승인되면 그 사원의 근태를 바로 '휴가'로 바꾼다.
+        // 근태가 승인 기록과 따로 놀면 "승인했는데 화면은 출근"인 상태가 생긴다.
+        if (approval.kind === 'leave_request') {
+          if (s.session?.role !== 'ceo') return;
+          const rec = s.humanStaff[approval.requesterId];
+          set({
+            approvals,
+            humanStaff:
+              positive && rec ? { ...s.humanStaff, [rec.id]: { ...rec, workMode: 'leave' } } : s.humanStaff,
+            audit: audit(
+              s.audit,
+              s.session.accountName,
+              positive ? '휴가 승인' : '휴가 거절',
+              rec?.name ?? approval.requesterId,
+              approval.leaveDays ? `${approval.leaveDays.startDay} ~ ${approval.leaveDays.endDay}` : '',
+            ),
+            ui: {
+              ...s.ui,
+              toast: positive
+                ? `${rec?.name ?? '사원'}의 휴가를 승인했습니다. 근태가 '휴가'로 바뀌었습니다.`
+                : '휴가 신청을 거절했습니다.',
+            },
+          });
+          return;
+        }
+
         if (approval.kind === 'company_deletion') {
           if (positive) {
             const companyName = s.company?.name ?? '(알 수 없음)';
@@ -1373,6 +1818,13 @@ export const useWorld = create<Store>()(
               chatRoomOrder: [],
               chatRoomMessages: {},
               chatRoomInvites: [],
+              // 회사가 사라지면 대표·사원 자격증명도 함께 지운다. 관리자 것은 남긴다 —
+              // 관리자는 회사와 무관하게 계속 들어와야 한다.
+              credentials: Object.fromEntries(
+                Object.entries(s.credentials).filter(([k]) => k === ADMIN_ACCOUNT_KEY),
+              ),
+              loginAttempts: {},
+              lastReadAt: {},
               schedule: [],
               branches: {},
               branchOrder: [],
@@ -1699,7 +2151,7 @@ export const useWorld = create<Store>()(
           phase: 'live',
           audit: audit(s.audit, name, '사원 가입 신청', s.company.name, `이메일 ${email}`),
         });
-        return { ok: true };
+        return { ok: true, staffId: id };
       },
 
       continueHumanStaffSession: (email) => {
@@ -1834,7 +2286,10 @@ export const useWorld = create<Store>()(
         // 같은 "mkang" 표기의 숨겨진 두 번째 코드 — 플랫폼 관리자 로그인 진입점이다.
         // 로그인 화면에는 관리자 버튼을 아예 노출하지 않고, 이 코드로만 들어간다.
         if (trimmed === ADMIN_UNLOCK_CODE) {
-          if (!get().session) get().loginDemo('platform_admin');
+          // 예전에는 이 코드만 맞으면 바로 관리자로 들어갔다. 코드가 소스에 있으므로
+          // 그것만으로는 잠금 장치가 되지 못한다. 이제는 관문을 열 뿐이고,
+          // 실제 진입은 관리자 암호를 통과해야 한다.
+          if (!get().session) get().setAdminGate(true);
           return true;
         }
 
@@ -2292,6 +2747,7 @@ export const useWorld = create<Store>()(
       selectStaff: (id) => set((s) => ({ ui: { ...s.ui, selectedStaffId: id, selectedEmployeeId: null } })),
       openPanel: (p) => set((s) => ({ ui: { ...s.ui, openPanel: p } })),
       setToast: (t) => set((s) => ({ ui: { ...s.ui, toast: t } })),
+      setAdminGate: (open) => set((s) => ({ ui: { ...s.ui, adminGateOpen: open } })),
 
       ensureCompanyWideRoom: () => {
         const patch = withCompanyWideRoom(get());
@@ -2377,6 +2833,9 @@ export const useWorld = create<Store>()(
         chatRoomOrder: s.chatRoomOrder,
         chatRoomMessages: s.chatRoomMessages,
         chatRoomInvites: s.chatRoomInvites,
+        credentials: s.credentials,
+        loginAttempts: s.loginAttempts,
+        lastReadAt: s.lastReadAt,
         schedule: s.schedule,
         tutorial: s.tutorial,
       }),

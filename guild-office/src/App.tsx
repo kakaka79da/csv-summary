@@ -1,13 +1,14 @@
 /**
  * 앱 셸. 단계(phase)에 따라 튜토리얼 화면과 메인 오피스를 전환한다.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { EASTER_EGG_TOTAL_MS } from '@/data/easterEgg';
 import { PLATFORM_MAKER } from '@/data/seed';
 import LoginScreen from '@/components/auth/LoginScreen';
 import EasterEggCredit from '@/components/auth/EasterEggCredit';
+import AdminGate from '@/components/auth/AdminGate';
 import FoundingFlow from '@/components/onboarding/FoundingFlow';
 import InterviewFlow from '@/components/onboarding/InterviewFlow';
 import FirstMissionBriefing from '@/components/onboarding/FirstMissionBriefing';
@@ -19,6 +20,7 @@ import RelationshipGraph from '@/components/graph/RelationshipGraph';
 import ChatRoomsPanel from '@/components/chat/ChatRoomsPanel';
 import StatusDashboard from '@/components/status/StatusDashboard';
 import SchedulePanel, { ScheduleEmptyBranchNote } from '@/components/schedule/SchedulePanel';
+import GlobalSearch from '@/components/search/GlobalSearch';
 import ApprovalCenter from '@/components/approvals/ApprovalCenter';
 import CostDashboard from '@/components/cost/CostDashboard';
 import AuditLog from '@/components/audit/AuditLog';
@@ -88,6 +90,7 @@ export default function App() {
     <div className="min-h-screen">
       {session && !pending ? <AppHeader /> : null}
       {body}
+      <AdminGate />
       <AnimatePresence>
         {toast ? (
           <motion.div
@@ -156,8 +159,16 @@ function AppHeader() {
   const makerName = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
   const simulationMode = useWorld((s) => s.simulationMode);
 
+  const totalUnread = useWorld((s) => s.totalUnread);
+  // 메시지가 늘어나면 배지도 다시 세어야 한다 — 개수를 구독해 두고 계산한다.
+  const messageTick = useWorld(
+    (s) => Object.values(s.chatRoomMessages).reduce((n, l) => n + l.length, 0) +
+      Object.values(s.staffChats).reduce((n, l) => n + l.length, 0),
+  );
+  const readTick = useWorld((s) => Object.keys(s.lastReadAt).length);
   const spent = ledger.reduce((s, e) => s + e.costUsd, 0);
   const pending = approvals.filter((a) => a.status === 'pending').length;
+  const unread = useMemo(() => totalUnread(), [totalUnread, messageTick, readTick]);
 
   return (
     <header className="sticky top-0 z-30 border-b border-stone-800 bg-stone-950/85 backdrop-blur">
@@ -183,6 +194,7 @@ function AppHeader() {
             </span>
           ) : null}
           {pending > 0 ? <Badge tone="gold">승인 대기 {pending}</Badge> : null}
+          {unread > 0 ? <Badge tone="vital">💬 안 읽음 {unread}</Badge> : null}
           <WeatherWidget />
           <span className="text-stone-500">
             로그인: <span className="text-stone-300">{session?.accountName}</span>
@@ -213,6 +225,7 @@ const PANELS = [
   ['cost', '비용 · API 사용량', '회사 월간 예산, 직원별 사용량, 월별 집계와 CSV 내보내기.'],
   ['people', '조직 · 지사', '인간 사원 명부(승인·급여·복지·근태)와 지사 목록. 사원 가입 코드도 여기 있습니다.'],
   ['graph', '관계도', '대표 · AI 직원 · 인간 사원 · 미션의 연결을 그래프로 봅니다(옵시디언 그래프 뷰와 비슷한 개념).'],
+  ['search', '검색', '이름 · 미션 · 채팅 내용 · 일정을 한 번에 찾습니다. 볼 수 있는 것만 검색됩니다.'],
   ['audit', '감사 로그', '누가 · 무엇을 · 언제 했는지의 기록.'],
   ['settings', '설정 · 보안', '회사 정보, 구글 드라이브 연결, 관리자 문의, 회사 삭제 요청.'],
 ] as const;
@@ -289,6 +302,7 @@ function OfficeScreen() {
   const reviewing = missionOrder.filter((id) => missions[id]?.status === 'review').length;
   // 재택 사원은 오피스 지도에 그리지 않으므로, 이 카드 줄이 유일한 클릭 경로다.
   const staffCards = Object.values(humanStaff).filter((r) => r.status === 'approved');
+  const roomUnread = useWorld((s) => s.totalUnread)();
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-4">
@@ -307,6 +321,7 @@ function OfficeScreen() {
             {label}
             {id === 'approvals' && pending > 0 ? ` (${pending})` : ''}
             {id === 'missions' && reviewing > 0 ? ` · 검토 ${reviewing}` : ''}
+            {id === 'rooms' && roomUnread > 0 ? ` (${roomUnread})` : ''}
           </Button>
         ))}
       </div>
@@ -406,6 +421,7 @@ function OfficeScreen() {
           {openPanel === 'cost' ? <CostDashboard /> : null}
           {openPanel === 'people' ? <PeoplePanel /> : null}
           {openPanel === 'graph' ? <RelationshipGraph /> : null}
+          {openPanel === 'search' ? <GlobalSearch /> : null}
           {openPanel === 'audit' ? <AuditLog /> : null}
           {openPanel === 'settings' ? <SettingsPanel /> : null}
         </Modal>

@@ -44,6 +44,7 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
   const updateOwnWorkMode = useWorld((s) => s.updateOwnWorkMode);
   const selectStaff = useWorld((s) => s.selectStaff);
   const attachmentBytesUsed = useWorld((s) => s.attachmentBytesUsed);
+  const markRead = useWorld((s) => s.markRead);
 
   const [draft, setDraft] = useState('');
   const [picked, setPicked] = useState<Attachment[]>([]);
@@ -58,6 +59,11 @@ export default function HumanStaffPanel({ staffId }: { staffId: string }) {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread.length]);
+
+  // 이 1:1 을 열어 두는 동안은 읽은 것으로 본다.
+  useEffect(() => {
+    markRead(`staff:${staffId}`);
+  }, [staffId, thread.length, markRead]);
 
   // 본인이 열었을 때는 "지금 하는 일" 입력칸에 지금 값을 채워 둔다.
   const isSelf = session?.role === 'human_staff' && session.humanStaffId === staffId;

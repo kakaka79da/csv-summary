@@ -19,6 +19,7 @@ const KIND_LABEL: Record<ApprovalKind, string> = {
   human_permission: '인간 직원 권한 변경',
   leave: 'AI 직원 휴직',
   return: 'AI 직원 복귀',
+  leave_request: '휴가 · 연차 신청',
   budget_overrun_resume: '예산 초과 업무 재개',
   company_deletion: '회사 삭제 (플랫폼 관리자 승인 필요)',
 };

@@ -625,6 +625,12 @@ export interface Mission {
   startedAt: number | null;
   finishedAt: number | null;
   isTutorial: boolean;
+  /**
+   * 마감일 (YYYY-MM-DD). 대표가 정한다.
+   * 없으면 타임라인은 예상 소요로 끝을 잡고 "예상"이라고 밝힌다 — 없는 마감일을
+   * 지어내지 않기 위해서다.
+   */
+  dueDay?: string | null;
 }
 
 /* ───────────────────────────── 승인 ─────────────────────────────────── */
@@ -641,6 +647,8 @@ export type ApprovalKind =
   | 'leave'
   | 'return'
   | 'budget_overrun_resume'
+  /** 사원이 올린 휴가·연차 신청. 대표가 승인해야 근태가 바뀐다. */
+  | 'leave_request'
   /** 회사 삭제. 대표가 요청하지만, 반드시 플랫폼 관리자만 승인할 수 있다. */
   | 'company_deletion';
 
@@ -669,6 +677,11 @@ export interface Approval {
   missionId: string | null;
   createdAt: number;
   decidedAt: number | null;
+  /**
+   * 종류별 부가 정보. 지금은 휴가 신청의 기간(YYYY-MM-DD)만 쓴다.
+   * 승인될 때 이 값을 보고 근태를 바꾼다.
+   */
+  leaveDays?: { startDay: string; endDay: string };
 }
 
 /* ─────────────────────── 비용 원장 / 감사 로그 ──────────────────────── */

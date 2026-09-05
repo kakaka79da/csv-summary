@@ -2,6 +2,7 @@
  * 미션·퀘스트 목록과 프로젝트 던전(전투 시각화).
  * 전투 수치는 모두 실제 업무 데이터에서 파생된 값이며, 옆에 실제 의미를 함께 적는다.
  */
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
 import { DIFFICULTY_LABEL, MISSION_STATUS_LABEL, clock, duration, money } from '@/lib/format';
@@ -188,6 +189,8 @@ function MissionCard({ mission }: { mission: Mission }) {
         </div>
       ) : null}
 
+      <MissionDue mission={mission} />
+
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         <Button size="sm" variant="ghost" hint="이 미션의 단계별 담당자·상태·비용을 CSV 파일로 저장합니다." onClick={exportCsv}>
           CSV 내보내기
@@ -285,6 +288,69 @@ function Cell({ k, v }: { k: string; v: string }) {
     <div className="flex justify-between gap-2">
       <span className="shrink-0 text-stone-500">{k}</span>
       <span className="truncate text-right text-stone-300">{v}</span>
+    </div>
+  );
+}
+
+/**
+ * 미션 마감일.
+ *
+ * 미션에는 원래 마감일이 없고 예상 소요만 있었다. 그래서 타임라인 막대에
+ * "예상"이라고 붙여 두었는데, 대표가 실제 마감을 정하면 그 표기가 사라지고
+ * 늦은 미션을 눈에 띄게 표시할 수 있다.
+ */
+function MissionDue({ mission }: { mission: Mission }) {
+  const session = useWorld((s) => s.session);
+  const setMissionDue = useWorld((s) => s.setMissionDue);
+  const [draft, setDraft] = useState(mission.dueDay ?? '');
+
+  const isCeo = session?.role === 'ceo';
+  const done = mission.status === 'completed' || mission.status === 'cancelled';
+  const today = new Date().toISOString().slice(0, 10);
+  const late = Boolean(mission.dueDay && !done && mission.dueDay < today);
+
+  if (!isCeo && !mission.dueDay) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-800 pt-2 text-[11px]">
+      <span className="text-stone-500">마감일</span>
+      {isCeo ? (
+        <>
+          <input
+            type="date"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="rounded-lg border border-stone-600 bg-stone-900 px-2 py-1 text-[11px] text-stone-100"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            hint="마감일을 정하면 일정 · 타임라인에서 '예상'이 아니라 실제 마감으로 표시됩니다."
+            onClick={() => setMissionDue(mission.id, draft || null)}
+          >
+            저장
+          </Button>
+          {mission.dueDay ? (
+            <Button
+              size="sm"
+              variant="quiet"
+              hint="마감일을 지웁니다. 타임라인은 다시 예상 소요로 표시됩니다."
+              onClick={() => {
+                setMissionDue(mission.id, null);
+                setDraft('');
+              }}
+            >
+              지우기
+            </Button>
+          ) : null}
+        </>
+      ) : (
+        <span className="text-stone-300">{mission.dueDay}</span>
+      )}
+      {late ? <Badge tone="ember">기한 넘김</Badge> : null}
+      {!mission.dueDay && isCeo ? (
+        <span className="text-stone-600">미정 — 타임라인에는 예상 소요로 표시됩니다</span>
+      ) : null}
     </div>
   );
 }

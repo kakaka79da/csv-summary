@@ -8,7 +8,7 @@
  *
  * AI 직원은 아직 이 단체방에서 스스로 말하지 않는다 — 멤버로만 표시된다.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useWorld, ROOM_ALL_ID } from '@/state/store';
 import { clock } from '@/lib/format';
 import { Badge, Button, Notice, Select, TextInput } from '@/components/ui/primitives';
@@ -28,6 +28,8 @@ function resolveMember(
 
 export default function ChatRoomsPanel() {
   const session = useWorld((s) => s.session);
+  const unreadCount = useWorld((s) => s.unreadCount);
+  const markRead = useWorld((s) => s.markRead);
   const company = useWorld((s) => s.company);
   const chatRooms = useWorld((s) => s.chatRooms);
   const chatRoomOrder = useWorld((s) => s.chatRoomOrder);
@@ -35,10 +37,19 @@ export default function ChatRoomsPanel() {
   const [newRoomName, setNewRoomName] = useState('');
   const createTeamRoom = useWorld((s) => s.createTeamRoom);
 
-  if (!company) return null;
-  const isCeo = session?.role === 'ceo';
   // 전체방은 스토어가 항상 만들어 두므로 기본으로 열린다. 혹시라도 없으면 첫 방을 연다.
   const activeRoomId = selected ?? (chatRooms[ROOM_ALL_ID] ? ROOM_ALL_ID : (chatRoomOrder[0] ?? ''));
+
+  // 열어 본 방은 읽은 것으로 표시한다. 메시지가 늘어날 때마다 다시 찍어야
+  // 보고 있는 동안 들어온 것도 안 읽음으로 남지 않는다.
+  // ⚠️ 훅은 전부 이른 return 앞에 있어야 한다 — 아래 `if (!company)` 보다 위에 둔 이유다.
+  const activeCount = useWorld((s) => (activeRoomId ? (s.chatRoomMessages[activeRoomId]?.length ?? 0) : 0));
+  useEffect(() => {
+    if (activeRoomId) markRead(activeRoomId);
+  }, [activeRoomId, activeCount, markRead]);
+
+  if (!company) return null;
+  const isCeo = session?.role === 'ceo';
   const activeRoom = chatRooms[activeRoomId];
 
   return (
@@ -56,7 +67,17 @@ export default function ChatRoomsPanel() {
                 activeRoomId === id ? 'border-gold bg-stone-800/70' : 'border-stone-700 hover:border-stone-500'
               }`}
             >
-              <span className="text-stone-100">{room.kind === 'company_wide' ? '🏢 ' : '💬 '}{room.name}</span>
+              <span className="flex items-center gap-1.5 text-stone-100">
+                <span className="min-w-0 flex-1 truncate">
+                  {room.kind === 'company_wide' ? '🏢 ' : '💬 '}
+                  {room.name}
+                </span>
+                {unreadCount(id) > 0 ? (
+                  <span className="shrink-0 rounded-full bg-gold px-1.5 text-[10px] font-semibold text-stone-950">
+                    {unreadCount(id)}
+                  </span>
+                ) : null}
+              </span>
               {room.kind === 'company_wide' ? (
                 <span className="mt-0.5 block text-[10px] text-stone-500">
                   기본 방 · 모든 직원이 자동 참여

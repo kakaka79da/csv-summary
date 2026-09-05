@@ -9,6 +9,9 @@ import { AGENT_STATE_LABEL, clock } from '@/lib/format';
 import { Badge, Button, SectionTitle, TextInput } from '@/components/ui/primitives';
 import type { HumanStaffRecord, WorkMode } from '@/types';
 
+/** 이 시간을 넘게 갱신하지 않으면 "오래됐다"고 본다. */
+const STALE_HOURS = 8;
+
 const WORK_MODE_LABEL: Record<WorkMode, string> = {
   office: '출근',
   remote: '재택',
@@ -34,6 +37,14 @@ export default function StatusDashboard() {
   const approvedStaff = Object.values(humanStaff)
     .filter((r) => r.status === 'approved')
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // 대표가 매일 보는 화면이므로, 손이 필요한 사람이 먼저 보여야 한다.
+  // "지금 하는 일"을 안 적었거나 오래 묵은 사람을 위로 올린다.
+  const now = Date.now();
+  const isStale = (r: HumanStaffRecord) =>
+    !r.currentTaskNote || now - (r.currentTaskUpdatedAt ?? 0) > STALE_HOURS * 3600_000;
+  const staleCount = approvedStaff.filter(isStale).length;
+  const sortedStaff = [...approvedStaff].sort((a, b) => Number(isStale(b)) - Number(isStale(a)));
 
   return (
     <div className="space-y-4">
@@ -67,24 +78,36 @@ export default function StatusDashboard() {
         {approvedStaff.length === 0 ? (
           <p className="text-xs text-stone-600">아직 승인된 인간 사원이 없습니다.</p>
         ) : (
-          <div className="space-y-1.5">
-            {approvedStaff.map((r) => (
-              <StaffRow key={r.id} record={r} isSelf={session?.role === 'human_staff' && session.humanStaffId === r.id} />
-            ))}
-          </div>
+          <>
+            {staleCount > 0 ? (
+              <p className="mb-1.5 text-[11px] text-gold">
+                {staleCount}명이 지금 하는 일을 남기지 않았거나 {STALE_HOURS}시간 넘게 갱신하지 않았습니다 — 위쪽에 모아 두었습니다.
+              </p>
+            ) : null}
+            <div className="space-y-1.5">
+              {sortedStaff.map((r) => (
+                <StaffRow
+                  key={r.id}
+                  record={r}
+                  isSelf={session?.role === 'human_staff' && session.humanStaffId === r.id}
+                  stale={isStale(r)}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function StaffRow({ record, isSelf }: { record: HumanStaffRecord; isSelf: boolean }) {
+function StaffRow({ record, isSelf, stale }: { record: HumanStaffRecord; isSelf: boolean; stale: boolean }) {
   const updateOwnTaskNote = useWorld((s) => s.updateOwnTaskNote);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(record.currentTaskNote ?? '');
 
   return (
-    <div className="rounded-lg border border-stone-800 px-3 py-2 text-[11px]">
+    <div className={`rounded-lg border px-3 py-2 text-[11px] ${stale ? 'border-gold/40 bg-gold/5' : 'border-stone-800'}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-stone-100">
           🧑 {record.name} <span className="text-stone-500">· {record.role}</span>

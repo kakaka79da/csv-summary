@@ -148,11 +148,15 @@ export function missionsToEvents(missions: Mission[], branchId: string | null = 
     .filter((m) => m.status !== 'draft' && m.startedAt !== null)
     .map((m) => {
       const start = toDay(new Date(m.startedAt as number));
+      // 마감일이 정해져 있으면 그것을 쓴다. 없을 때만 예상 소요로 끝을 잡고
+      // 제목에 "예상"이라고 밝힌다 — 없는 마감일을 지어내지 않기 위해서다.
       const endTs = (m.finishedAt ?? (m.startedAt as number) + m.estSeconds * 1000) as number;
-      const end = toDay(new Date(Math.max(endTs, m.startedAt as number)));
+      const fallbackEnd = toDay(new Date(Math.max(endTs, m.startedAt as number)));
+      const end = m.dueDay ?? fallbackEnd;
+      const guessed = !m.finishedAt && !m.dueDay;
       return {
         id: `mission:${m.id}`,
-        title: m.finishedAt ? m.name : `${m.name} (예상)`,
+        title: guessed ? `${m.name} (예상)` : m.name,
         kind: 'project' as ScheduleKind,
         branchId,
         startDay: start,

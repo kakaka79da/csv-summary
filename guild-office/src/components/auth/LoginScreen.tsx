@@ -1,13 +1,17 @@
 /**
- * 역할별 데모 로그인.
+ * 로그인 화면.
  *
- * ⚠️ 이 화면에는 암호 입력이 아예 없다. 프로토타입에서 암호를 다루면
- * 프론트엔드에 자격증명이 남게 되므로, 실제 인증은 백엔드 항목으로 분리한다.
+ * 대표·사원은 각자 정한 **개인 암호**로 들어온다. 암호는 PBKDF2 해시로만 저장되고
+ * 원문은 어디에도 남지 않는다(`src/lib/password.ts`).
+ *
+ * ⚠️ 다만 대조가 브라우저 안에서 일어나므로 **진짜 보안은 아니다.** 어깨너머·실수로
+ * 남의 계정에 들어가는 일을 막을 뿐이며, 실제 인증은 서버가 대조해야 한다.
  */
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useWorld } from '@/state/store';
-import { Button, Notice } from '@/components/ui/primitives';
+import { Button, Field, Notice, TextInput } from '@/components/ui/primitives';
+import { MIN_PASSWORD_LENGTH, checkPassword } from '@/lib/password';
 import { PLATFORM_MAKER } from '@/data/seed';
 import EasterEggCredit from '@/components/auth/EasterEggCredit';
 import StaffSignIn from '@/components/auth/StaffSignIn';
@@ -30,10 +34,24 @@ const ROLES = [
 ];
 
 export default function LoginScreen() {
-  const login = useWorld((s) => s.loginDemo);
   const company = useWorld((s) => s.company);
   const makerName = useWorld((s) => s.platformMakerName) || PLATFORM_MAKER;
   const [staffFlow, setStaffFlow] = useState(false);
+  const [ceoFlow, setCeoFlow] = useState(false);
+
+  if (ceoFlow) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
+          <div className="mb-6 text-center">
+            <div className="mb-3 text-4xl">⚔</div>
+            <h1 className="rune-title text-3xl">길드 오피스</h1>
+          </div>
+          <CeoSignIn onBack={() => setCeoFlow(false)} />
+        </motion.div>
+      </div>
+    );
+  }
 
   if (staffFlow) {
     return (
@@ -73,7 +91,7 @@ export default function LoginScreen() {
                   key={r.role}
                   type="button"
                   disabled={locked}
-                  onClick={() => (r.role === 'human_staff' ? setStaffFlow(true) : login(r.role))}
+                  onClick={() => (r.role === 'human_staff' ? setStaffFlow(true) : setCeoFlow(true))}
                   className={`flex w-full items-center gap-4 rounded-xl border px-4 py-3 text-left transition-colors ${
                     locked
                       ? 'cursor-not-allowed border-stone-800 opacity-40'
@@ -91,7 +109,7 @@ export default function LoginScreen() {
                     <span className="mt-0.5 block text-xs text-stone-400">{r.desc}</span>
                   </span>
                   <span className="shrink-0 text-xs text-stone-500">
-                    {locked ? '창립 후 개방' : '데모 로그인 →'}
+                    {locked ? '창립 후 개방' : '로그인 →'}
                   </span>
                 </button>
               );
@@ -100,10 +118,11 @@ export default function LoginScreen() {
 
           <div className="mt-5">
             <Notice>
-              <strong className="text-arcane-soft">이 화면은 데모 로그인입니다.</strong> 암호를 입력받지
-              않으며, 어떤 자격증명도 브라우저에 저장하지 않습니다. 실제 인증(Argon2id 해시, 최초 1회용
-              부트스트랩 암호, 로그인 실패 제한, 감사 로그)은 백엔드 구현 항목으로 분리되어 있습니다.
-              자세한 내용은 <code className="text-stone-300">docs/SECURITY.md</code> 를 참고하세요.
+              <strong className="text-arcane-soft">암호는 해시로만 저장됩니다.</strong> 원문은 어디에도
+              남지 않고, 연달아 5번 틀리면 5분간 잠깁니다. 다만 대조가 브라우저 안에서 일어나므로
+              <strong> 진짜 보안은 아닙니다</strong> — 개발자 도구를 아는 사람은 우회할 수 있습니다.
+              서버 인증(Argon2id, 부트스트랩 암호, 감사 로그)은 백엔드 항목입니다.
+              <code className="ml-1 text-stone-300">docs/SECURITY.md</code>
             </Notice>
           </div>
         </div>
@@ -129,6 +148,104 @@ export default function LoginScreen() {
           <EasterEggCredit makerName={makerName} />
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── 대표 로그인 ─────────────────────────── */
+
+function CeoSignIn({ onBack }: { onBack: () => void }) {
+  const hasPassword = useWorld((s) => s.hasPassword);
+  const setAccountPassword = useWorld((s) => s.setAccountPassword);
+  const loginAsCeo = useWorld((s) => s.loginAsCeo);
+  const loginDemo = useWorld((s) => s.loginDemo);
+
+  const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const first = !hasPassword('ceo');
+
+  const submit = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      if (first) {
+        if (password !== password2) {
+          setError('두 번 입력한 암호가 서로 다릅니다.');
+          return;
+        }
+        const strong = checkPassword(password);
+        if (!strong.ok) {
+          setError(strong.error ?? '암호를 다시 정해 주세요.');
+          return;
+        }
+        const made = await setAccountPassword('ceo', password);
+        if (!made.ok) {
+          setError(made.error ?? '암호를 정하지 못했습니다.');
+          return;
+        }
+        loginDemo('ceo');
+        return;
+      }
+      const res = await loginAsCeo(password);
+      if (!res.ok) setError(res.error ?? '로그인할 수 없습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel p-5">
+      <h2 className="rune-title text-lg">{first ? '대표 암호 만들기' : '대표 로그인'}</h2>
+      <p className="mt-1 text-xs text-stone-400">
+        {first
+          ? `이 브라우저에서 처음 들어오셨습니다. 앞으로 쓸 암호를 ${MIN_PASSWORD_LENGTH}자 이상으로 정해 주세요.`
+          : '정해 두신 대표 암호를 입력하세요.'}
+      </p>
+
+      <div className="mt-4 space-y-3">
+        <Field label="암호">
+          <TextInput
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !first) void submit();
+            }}
+            placeholder="••••••••"
+          />
+        </Field>
+        {first ? (
+          <Field label="암호 다시 입력">
+            <TextInput
+              type="password"
+              value={password2}
+              onChange={(e) => setPassword2(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submit();
+              }}
+              placeholder="••••••••"
+            />
+          </Field>
+        ) : null}
+      </div>
+
+      {error ? (
+        <div className="mt-3">
+          <Notice tone="warn">{error}</Notice>
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex justify-between gap-2">
+        <Button variant="quiet" onClick={onBack}>
+          ← 뒤로
+        </Button>
+        <Button disabled={busy || !password || (first && !password2)} onClick={() => void submit()}>
+          {busy ? '확인 중…' : first ? '암호 정하고 시작 →' : '로그인 →'}
+        </Button>
+      </div>
     </div>
   );
 }
